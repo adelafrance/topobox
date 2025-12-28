@@ -9,3 +9,4 @@ plotly
 rasterio
 requests
 ezdxf
+streamlit-javascript
