@@ -12,10 +12,7 @@ def list_projects():
     """Returns a sorted list of available project names."""
     return sorted([f.replace('.json', '') for f in os.listdir(PROJECTS_DIR) if f.endswith('.json')])
 
-            "positions": []
-        }
-    }
-    return safe_name, save_data
+
 
 def get_project_json(name, state):
     """Returns the JSON string for the project."""

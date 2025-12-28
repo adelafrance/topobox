@@ -78,18 +78,18 @@ def render_sidebar(api_key, process_callback):
                     
                     uploaded_file = st.file_uploader("📂 Load Project", type=["json"])
                     if uploaded_file is not None:
-                         # We need a button to Confirm Load to avoid auto-reload loop?
-                         # Or just load immediately? Immediate is fine for st.file_uploader.
-                         import json
-                         try:
-                             data = json.load(uploaded_file)
-                             if st.button(f"📥 Load {uploaded_file.name}", use_container_width=True):
-                                 project_manager.apply_settings(data)
-                                 st.session_state.proj_name = safe_name # Or from file
-                                 st.toast(f"Loaded {uploaded_file.name}!", icon="📂")
-                                 st.rerun()
-                         except Exception as e:
-                             st.error(f"Invalid JSON: {e}")
+                        # We need a button to Confirm Load to avoid auto-reload loop?
+                        # Or just load immediately? Immediate is fine for st.file_uploader.
+                        import json
+                        try:
+                            data = json.load(uploaded_file)
+                            if st.button(f"📥 Load {uploaded_file.name}", use_container_width=True):
+                                project_manager.apply_settings(data)
+                                st.session_state.proj_name = safe_name # Or from file
+                                st.toast(f"Loaded {uploaded_file.name}!", icon="📂")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Invalid JSON: {e}")
                 else:
                     # LOCAL MAKER: Save / Load Disk
                     def save_proj():
