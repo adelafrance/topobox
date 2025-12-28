@@ -11,6 +11,7 @@ TopoBox is a Streamlit-based application for designing and manufacturing 3D topo
 TopoBox is designed to work in a **Hybrid Mode** to balance accessibility with performance:
 
 ### 1. 🌐 Creator Mode (Web)
+*   **Live Demo**: [https://topobox.streamlit.app/](https://topobox.streamlit.app/)
 *   **Purpose**: Design, Explore, and Preview.
 *   **Where**: Streamlit Cloud (Browser).
 *   **Features**: Fast terrain preview, intuitive UI, "Download Project" (Save), "Resume Project" (Load).
