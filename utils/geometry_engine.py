@@ -175,16 +175,22 @@ def generate_all_layer_data_v3(_smooth_data, _min_elev, _m_per_layer, _n_terrain
             
             # --- Auto-Fusion (Gap Closing) ---
             # Merges "essentially touching" parts to prevent trivial islands (e.g. < 0.4mm gap)
-            if settings.get('auto_fuse', True):
+            if not settings.get('fast_preview', False) and settings.get('auto_fuse', True):
                  final_geom = fuse_close_polygons(final_geom, gap=settings.get('fuse_gap', 0.4))
             
             # Smart Cleanup: Only flag thin BRIDGES, keep thin PROTRUSIONS
-            cleaned_geom, problem_list = analyze_thin_features(final_geom, min_width=settings.get('min_feature_width', 3.0), auto_cleanup=settings.get('auto_cleanup', True))
+            if settings.get('fast_preview', False):
+                 # Fast Mode: Skip cleanup and analysis. Just simplify.
+                 cleaned_geom = final_geom.simplify(0.05, preserve_topology=True)
+                 problem_list = []
+            else:
+                 # Full Mode: Detailed cleanup
+                 cleaned_geom, problem_list = analyze_thin_features(final_geom, min_width=settings.get('min_feature_width', 3.0), auto_cleanup=settings.get('auto_cleanup', True))
             
             final_polys_list = _classify_polygons(cleaned_geom, settings)
             
             # --- Auto-Bridge (Intelligent Automation) ---
-            if settings.get('auto_bridge', False):
+            if not settings.get('fast_preview', False) and settings.get('auto_bridge', False):
                  final_polys_list = auto_bridge_islands(final_polys_list, settings.get('bridge_thickness', 2.0), _smooth_data, settings)
             
             if problem_list:
@@ -444,6 +450,8 @@ def terrain_aware_thicken(poly, smooth_data, layer_index, m_per_layer, min_elev,
     best_patch = None
     original_area = poly.area
     
+    fast_preview = settings.get('fast_preview', False)
+
     for i in range(n_steps):
         test_elev = current_elev - (i * step_size)
         padded_local = np.pad(local_data, pad_width=1, mode='constant', constant_values=test_elev - 1.0)

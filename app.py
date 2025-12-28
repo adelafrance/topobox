@@ -115,6 +115,10 @@ if st.session_state.run_btn or st.session_state.elevation_data is not None:
         }
         raster_settings['code_version'] = CURRENT_CODE_VERSION
         
+        # Fast Preview for Creator Mode to ensure snappy UI
+        if st.session_state.user_mode == 'creator':
+            raster_settings['fast_preview'] = True
+        
         processed_data = geometry_engine.process_terrain_raster(st.session_state.elevation_data, raster_settings)
         
         if processed_data is None:
