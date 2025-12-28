@@ -64,31 +64,34 @@ def render_sidebar(api_key, process_callback):
     
     with st.sidebar:
         with st.expander("📂 Project", expanded=True):
-            st.text_input("Name", key="proj_name")
-            
             # Detect Deployment Environment
             is_web = hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web"
             
+            # File Uploader First (to allow updating proj_name)
+            if is_maker and is_web:
+                uploaded_file = st.file_uploader("📂 Load Project", type=["json"], key="uploader")
+                if uploaded_file is not None:
+                    import json
+                    try:
+                        data = json.load(uploaded_file)
+                        # Auto-load on upload to avoid button confusion? 
+                        # Or use a button with a unique key?
+                        if st.button(f"📥 Confirm Load: {uploaded_file.name}", use_container_width=True):
+                            project_manager.apply_settings(data)
+                            st.session_state.proj_name = data.get('project_name', uploaded_file.name.replace('.json',''))
+                            st.toast(f"Loaded {uploaded_file.name}!", icon="📂")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Invalid JSON: {e}")
+            
+            # Name Input (Now safe to render)
+            st.text_input("Name", key="proj_name")
+
             if is_maker:
                 if is_web:
-                    # WEB MAKER: Download / Upload
+                    # WEB MAKER: Download Only (Upload is handled above)
                     json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
                     st.download_button("💾 Download Project", data=json_str, file_name=f"{safe_name}.json", mime="application/json", use_container_width=True)
-                    
-                    uploaded_file = st.file_uploader("📂 Load Project", type=["json"])
-                    if uploaded_file is not None:
-                        # We need a button to Confirm Load to avoid auto-reload loop?
-                        # Or just load immediately? Immediate is fine for st.file_uploader.
-                        import json
-                        try:
-                            data = json.load(uploaded_file)
-                            if st.button(f"📥 Load {uploaded_file.name}", use_container_width=True):
-                                project_manager.apply_settings(data)
-                                st.session_state.proj_name = safe_name # Or from file
-                                st.toast(f"Loaded {uploaded_file.name}!", icon="📂")
-                                st.rerun()
-                        except Exception as e:
-                            st.error(f"Invalid JSON: {e}")
                 else:
                     # LOCAL MAKER: Save / Load Disk
                     def save_proj():
