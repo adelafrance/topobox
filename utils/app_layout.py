@@ -64,6 +64,15 @@ def render_sidebar(api_key, process_callback):
     is_maker = st.session_state.get('user_mode') == 'maker'
     
     with st.sidebar:
+        if not is_maker:
+            with st.expander("❓ How to Use", expanded=False):
+                st.markdown("""
+                **1. Locate:** Use the **📍** button or enter coordinates to find your mountain.
+                **2. Size:** Set the **Map Width** (how much terrain to capture) and **Box Dimensions** (your physical wood size).
+                **3. Preview:** Click **Generate Preview** to see the 3D result.
+                **4. Save:** Download the `.json` file and send it to your maker!
+                """)
+        
         with st.expander("📂 Project", expanded=True):
             # Detect Deployment Environment
             is_web = False
@@ -203,14 +212,14 @@ def render_sidebar(api_key, process_callback):
                      update_h_from_w()
 
             c1, c2 = st.columns(2)
-            c1.number_input("W (km)", step=0.5, key="width_km", on_change=update_h_from_w, min_value=1.0, help="Minimum 1.0 km")
-            c2.number_input("H (km)", step=0.5, key="height_km", on_change=update_w_from_h, min_value=1.0, help="Minimum 1.0 km")
+            c1.number_input("W (km)", step=0.5, key="width_km", on_change=update_h_from_w, min_value=1.0, help="Width of the real-world terrain to capture.")
+            c2.number_input("H (km)", step=0.5, key="height_km", on_change=update_w_from_h, min_value=1.0, help="Height of the real-world terrain to capture.")
             
             st.caption("Physical Box Dimensions:")
             c_b1, c_b2, c_b3 = st.columns(3)
-            c_b1.number_input("W (mm)", step=10.0, key="box_w", min_value=10.0, on_change=update_dims_from_box)
-            c_b2.number_input("H (mm)", step=10.0, key="box_h", min_value=10.0, on_change=update_dims_from_box)
-            c_b3.number_input("D (mm)", step=5.0, key="box_d", min_value=5.0)
+            c_b1.number_input("W (mm)", step=10.0, key="box_w", min_value=10.0, on_change=update_dims_from_box, help="Interior Width of your laser-cut box.")
+            c_b2.number_input("H (mm)", step=10.0, key="box_h", min_value=10.0, on_change=update_dims_from_box, help="Interior Height of your laser-cut box.")
+            c_b3.number_input("D (mm)", step=5.0, key="box_d", min_value=5.0, help="Interior Depth (available stacking height).")
         
         with st.expander("3. Material", expanded=True):
             st.number_input("Thickness (mm)", min_value=0.1, step=0.1, key="mat_th", help="Thickness of the material sheet.")
