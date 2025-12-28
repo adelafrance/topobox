@@ -76,18 +76,39 @@ class MultiSheetPacker:
                 for v in variants:
                     if x + v['w'] > self.sheet_w or y + v['h'] > self.sheet_h: continue
                     
-                    cand_poly = affinity.translate(v['poly'], x, y)
+                    # 1. Fast Envelope Check:
+                    cand_minx, cand_miny = x, y
+                    cand_maxx, cand_maxy = x + v['w'], y + v['h']
                     
-                    # Collision Check using Barriers (Already buffered by gap)
-                    # We test if candidate intersects ANY barrier
+                    # Optimization: Don't create Polygon yet!
+                    # Check Box collisions first.
                     collision = False
+                    
+                    # Lazy Poly creation
+                    cand_poly = None 
+                    
                     for b in self.current_sheet_barriers:
+                        # Envelope intersection
+                        b_minx, b_miny, b_maxx, b_maxy = b.bounds
+                        if (cand_maxx < b_minx or cand_minx > b_maxx or 
+                            cand_maxy < b_miny or cand_miny > b_maxy):
+                            continue # No box overlap
+                        
+                        # Box Overlap Detected! 
+                        # NOW we pay the price to create the geometry and check widely.
+                        if cand_poly is None:
+                            cand_poly = affinity.translate(v['poly'], x, y)
+                            
                         if b.intersects(cand_poly):
                             collision = True
                             break
                     
                     if not collision:
                         # Found a spot!
+                        # Warning: cand_poly might be None if we never hit a barrier box
+                        if cand_poly is None:
+                             cand_poly = affinity.translate(v['poly'], x, y)
+                             
                         self._add_to_sheet(v['poly'], x, y, item_data, v['rot'])
                         return True
         return False
@@ -102,5 +123,7 @@ class MultiSheetPacker:
             'poly': final_poly # Actual position
         })
         # Add barrier: The polygon buffered by 'gap'
-        # This ensures the next item stays 'gap' away
-        self.current_sheet_barriers.append(final_poly.buffer(self.gap))
+        # OPTIMIZATION: Use low resolution buffer (resolution=2 => Octagon)
+        # This keeps vertex count low while maintaining gap.
+        # join_style=2 (Mitre) is faster than Round.
+        self.current_sheet_barriers.append(final_poly.buffer(self.gap, resolution=2, join_style=2))
