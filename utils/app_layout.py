@@ -112,8 +112,23 @@ def render_sidebar(api_key, process_callback):
             else:
                 # CREATOR MODE
                 if is_web:
+                    # CREATOR WEB: Load / Resume
+                    creator_upload = st.file_uploader("📂 Load Project to Resume", type=["json"], key="creator_uploader")
+                    if creator_upload is not None:
+                        import json
+                        try:
+                            data = json.load(creator_upload)
+                            if st.button(f"📥 Restore {creator_upload.name}", use_container_width=True):
+                                project_manager.apply_settings(data)
+                                st.session_state.proj_name = data.get('project_name', creator_upload.name.replace('.json',''))
+                                st.toast(f"Restored {creator_upload.name}!", icon="📂")
+                                st.rerun()
+                        except Exception as e:
+                            st.error(f"Invalid Project File: {e}")
+
                     json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
-                    st.download_button("📤 Submit Design (Download)", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="primary", use_container_width=True, help="Download the design file to email to the Maker.")
+                    st.download_button("💾 Save Project (Download)", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True, help="Download your progress to resume later.")
+                    st.download_button("📤 Submit Design (Final)", data=json_str, file_name=f"{safe_name}_SUBMISSION.json", mime="application/json", type="primary", use_container_width=True, help="Download the final design file to email to the Maker.")
                 else:
                     if st.button("📤 Submit Design", type="primary", use_container_width=True):
                         st.success("Design Submitted! (Simulation)")
