@@ -249,15 +249,29 @@ def render_export(final_geoms, settings, current_dowels):
         
         st.divider()
         st.markdown("##### Nesting")
-        nest_aspect = st.number_input("Sheet Aspect (L/W)", min_value=1.0, value=1.5, step=0.1)
+        nest_mode = st.radio("Sheet Strategy", ["Fixed Size", "Auto-Size"], index=0, horizontal=True)
+        
+        ex_sheet_w, ex_sheet_h = 600, 400
+        if nest_mode == "Fixed Size":
+            c_n1, c_n2 = st.columns(2)
+            ex_sheet_w = c_n1.number_input("Sheet W (mm)", value=600, step=10)
+            ex_sheet_h = c_n2.number_input("Sheet H (mm)", value=400, step=10)
+            nest_aspect = ex_sheet_w / ex_sheet_h
+        else:
+            nest_aspect = st.number_input("Target Aspect (L/W)", min_value=1.0, value=1.5, step=0.1)
+
         nest_gap = st.number_input("Min Gap (mm)", value=2.0, min_value=0.0, step=0.5)
         nest_rotation = st.checkbox("Allow Rotation", value=True)
         
         if st.button("🧩 Calculate Layout", type="primary", use_container_width=True):
-            _run_nesting(final_geoms, current_dowels, nest_gap, nest_rotation, nest_aspect)
+            _run_nesting(final_geoms, current_dowels, nest_gap, nest_rotation, nest_aspect, nest_mode, ex_sheet_w, ex_sheet_h)
             st.rerun()
             
         if 'nested_components' in st.session_state:
+            n_sheets_c = len(st.session_state.nested_components)
+            n_sheets_j = len(st.session_state.get('nested_jigs', []))
+            st.success(f"Packed into {n_sheets_c} Component Sheet(s) + {n_sheets_j} Jig Sheet(s)")
+            
             st.download_button(f"⬇️ Download Nested {export_fmt} ZIP", 
                                data=exporter.generate_nested_zip(st.session_state.nested_components, st.session_state.get('nested_jigs'), st.session_state.nested_comp_dims, st.session_state.get('nested_jig_dims'), export_fmt, ex_wood_color, "#000000"),
                                file_name=f"{st.session_state.proj_name}_Nested_{export_fmt}.zip", mime="application/zip", use_container_width=True)
@@ -630,7 +644,7 @@ def _render_2d_assembly_view(cur_idx, current_layer_polys, current_dowels, jig_m
     fig_2d.update_layout(dragmode='select', clickmode='event+select')
     st.plotly_chart(fig_2d, use_container_width=True, key=f"assembly_plot_L{cur_idx}", config={'displayModeBar': True, 'displaylogo': False}, on_select="rerun", selection_mode=["points", "box"])
 
-def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect):
+def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, mode, fw, fh):
     with st.spinner("Calculating optimal layout..."):
         all_components = []
         all_jigs = []
@@ -643,21 +657,32 @@ def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect):
 
         def pack(items):
             if not items: return [], 0, 0
-            total_area = sum(i['poly'].area for i in items)
-            est_w = math.sqrt(total_area / 0.8 * aspect)
-            est_h = est_w / aspect
-            for i in range(20):
-                w, h = est_w * (1 + 0.05*i), est_h * (1 + 0.05*i)
-                packer = nesting.IrregularPacker(w, h, gap, allow_rotation=rotation, grid_step=max(w,h)/200)
-                if all(packer._place_item(0, 0, item) for item in sorted(items, key=lambda x: x['poly'].area, reverse=True)):
-                    packer.finish()
-                    return packer.sheets[0], w, h
-            return [], 0, 0
+            
+            # Helper to run pack
+            def run_packer(w, h):
+                packer = nesting.MultiSheetPacker(w, h, gap, allow_rotation=rotation, grid_step=max(w,h)/150)
+                packer.pack_items(items)
+                return packer.sheets
+
+            if mode == "Fixed Size":
+                return run_packer(fw, fh), fw, fh
+            else:
+                # Auto-Size (Infinite Sheet Heuristic)
+                total_area = sum(i['poly'].area for i in items)
+                est_w = math.sqrt(total_area / 0.8 * aspect)
+                est_h = est_w / aspect
+                # Try iteratively
+                for i in range(20):
+                    w, h = est_w * (1 + 0.05*i), est_h * (1 + 0.05*i)
+                    sheets = run_packer(w, h)
+                    if len(sheets) == 1:
+                        return sheets, w, h
+                return sheets, w, h # Return whatever we got (likely last attempt)
 
         comps, cw, ch = pack(all_components)
         jigs, jw, jh = pack(all_jigs)
-        st.session_state.nested_components = [comps]
+        st.session_state.nested_components = comps
         st.session_state.nested_comp_dims = (cw, ch)
-        st.session_state.nested_jigs = [jigs]
+        st.session_state.nested_jigs = jigs
         st.session_state.nested_jig_dims = (jw, jh)
         st.toast("Nesting complete!", icon="🧩")
