@@ -60,57 +60,72 @@ class MultiSheetPacker:
             w, h = maxx - minx, maxy - miny
             variants.append({'poly': affinity.translate(p_rot, -minx, -miny), 'w': w, 'h': h, 'rot': rot})
         
-        # Grid Search
-        # Heuristic: Bottom-Left fill
-        # Check integer coordinates stepped by grid_step
+    def _place_on_current(self, item_data):
+        poly = item_data['poly']
         
-        # Optimization: Don't check every pixel.
-        y_max = int(self.sheet_h / self.grid_step)
-        x_max = int(self.sheet_w / self.grid_step)
+        orientations = [0]
+        if self.allow_rotation: orientations.extend([90, 180, 270])
         
-        for yi in range(y_max):
-            y = yi * self.grid_step
-            for xi in range(x_max):
-                x = xi * self.grid_step
+        variants = []
+        for rot in orientations:
+            # Rotate
+            p_rot = affinity.rotate(poly, rot, origin=(0,0)) if rot != 0 else poly
+            # Normalize to (0,0) bounds
+            minx, miny, maxx, maxy = p_rot.bounds
+            w, h = maxx - minx, maxy - miny
+            variants.append({'poly': affinity.translate(p_rot, -minx, -miny), 'w': w, 'h': h, 'rot': rot})
+        
+        # HEURISTIC OPTIMIZATION: "Candidate Points"
+        # Instead of checking every 5mm (Grid Search), we only check "interesting" spots.
+        # Interesting spots are: (0,0) and corners of existing placed items.
+        # This reduces search space from ~20,000 points to ~50 points.
+        
+        candidate_points = [(0,0)] # Always try origin
+        for b in self.current_sheet_barriers:
+            b_minx, b_miny, b_maxx, b_maxy = b.bounds
+            # Try placing to the right of existing
+            if b_maxx + self.gap <= self.sheet_w:
+                candidate_points.append((b_maxx + self.gap, b_miny)) # Align bottom
+                candidate_points.append((b_maxx + self.gap, 0))      # Floor align
+            # Try placing on top of existing
+            if b_maxy + self.gap <= self.sheet_h:
+                candidate_points.append((b_minx, b_maxy + self.gap)) # Align left
+                candidate_points.append((0, b_maxy + self.gap))      # Wall align
+
+        # Dedup and sort candidates by Y then X (Bottom-Left Strategy)
+        # Using set for dedup requires tuples
+        unique_candidates = sorted(list(set(candidate_points)), key=lambda p: (p[1], p[0]))
+        
+        for x, y in unique_candidates:
+             for v in variants:
+                if x + v['w'] > self.sheet_w or y + v['h'] > self.sheet_h: continue
                 
-                for v in variants:
-                    if x + v['w'] > self.sheet_w or y + v['h'] > self.sheet_h: continue
-                    
-                    # 1. Fast Envelope Check:
-                    cand_minx, cand_miny = x, y
-                    cand_maxx, cand_maxy = x + v['w'], y + v['h']
-                    
-                    # Optimization: Don't create Polygon yet!
-                    # Check Box collisions first.
-                    collision = False
-                    
-                    # Lazy Poly creation
-                    cand_poly = None 
-                    
-                    for b in self.current_sheet_barriers:
-                        # Envelope intersection
-                        b_minx, b_miny, b_maxx, b_maxy = b.bounds
-                        if (cand_maxx < b_minx or cand_minx > b_maxx or 
-                            cand_maxy < b_miny or cand_miny > b_maxy):
-                            continue # No box overlap
+                # Check Box First
+                cand_minx, cand_miny = x, y
+                cand_maxx, cand_maxy = x + v['w'], y + v['h']
+                
+                collision = False
+                cand_poly = None 
+                
+                for b in self.current_sheet_barriers:
+                    b_minx, b_miny, b_maxx, b_maxy = b.bounds
+                    if (cand_maxx < b_minx or cand_minx > b_maxx or 
+                        cand_maxy < b_miny or cand_miny > b_maxy):
+                        continue 
+
+                    if cand_poly is None:
+                        cand_poly = affinity.translate(v['poly'], x, y)
                         
-                        # Box Overlap Detected! 
-                        # NOW we pay the price to create the geometry and check widely.
-                        if cand_poly is None:
+                    if b.intersects(cand_poly):
+                        collision = True
+                        break
+                
+                if not collision:
+                    if cand_poly is None:
                             cand_poly = affinity.translate(v['poly'], x, y)
                             
-                        if b.intersects(cand_poly):
-                            collision = True
-                            break
-                    
-                    if not collision:
-                        # Found a spot!
-                        # Warning: cand_poly might be None if we never hit a barrier box
-                        if cand_poly is None:
-                             cand_poly = affinity.translate(v['poly'], x, y)
-                             
-                        self._add_to_sheet(v['poly'], x, y, item_data, v['rot'])
-                        return True
+                    self._add_to_sheet(v['poly'], x, y, item_data, v['rot'])
+                    return True
         return False
 
     def _add_to_sheet(self, poly_norm, x, y, item_data, rot, force=False):

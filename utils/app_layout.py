@@ -3,6 +3,7 @@ import os
 import signal
 import numpy as np
 from utils import project_manager
+from streamlit_javascript import st_javascript
 
 def inject_custom_css():
     st.markdown("""
@@ -139,12 +140,77 @@ def render_sidebar(api_key, process_callback):
                     if st.button("📤 Submit Design", type="primary", use_container_width=True):
                         st.success("Design Submitted! (Simulation)")
 
-        with st.expander("1. Location", expanded=True):
-            st.number_input("Lat", format="%.4f", key="lat"); st.number_input("Lon", format="%.4f", key="lon")
-            c1, c2 = st.columns(2); c1.number_input("W (km)", step=1.0, key="width_km"); c2.number_input("H (km)", step=1.0, key="height_km")
-        
-        with st.expander("2. Box Dimensions", expanded=True):
-            st.number_input("Width (mm)", step=1.0, key="box_w"); st.number_input("Height (mm)", step=1.0, key="box_h"); st.number_input("Depth (mm)", step=1.0, key="box_d")
+        with st.expander("2. Map Settings & Dimensions", expanded=True):
+            # Auto-populate text input
+            if 'coords_input' not in st.session_state:
+                st.session_state.coords_input = f"{st.session_state.lat:.4f}, {st.session_state.lon:.4f}"
+            
+            c_txt, c_btn = st.columns([0.85, 0.15])
+            with c_txt:
+                st.text_input("Lat/Lon", key="coords_input", on_change=lambda: _parse_coords(st.session_state.coords_input), help="Format: Lat, Lon", label_visibility="collapsed")
+            with c_btn:
+                if st.button("📍", help="Get Current Location", use_container_width=True):
+                    import time
+                    st.session_state.getting_loc = True
+                    st.session_state.geo_key = f"geo_{time.time()}"
+            
+            if st.session_state.get('getting_loc'):
+                st.info("Requesting precise location from browser... (Please 'Allow' permissions)")
+                # Run JS Geolocation
+                loc_data = st_javascript("""
+                    new Promise(resolve => {
+                        navigator.geolocation.getCurrentPosition(
+                            pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+                            err => resolve({error: err.message}),
+                            {enableHighAccuracy: true, timeout: 10000, maximumAge: 0}
+                        );
+                    })
+                """, key=st.session_state.get('geo_key', 'geo_init'))
+                
+                if loc_data:
+                    # Check for errors
+                    if isinstance(loc_data, dict) and 'error' in loc_data:
+                         st.error(f"Location Error: {loc_data['error']}")
+                         st.session_state.getting_loc = False
+                    elif isinstance(loc_data, dict) and 'lat' in loc_data:
+                        st.session_state.lat = loc_data['lat']
+                        st.session_state.lon = loc_data['lon']
+                        st.session_state.coords_input = f"{loc_data['lat']:.4f}, {loc_data['lon']:.4f}"
+                        st.session_state.getting_loc = False
+                        st.success("Precise location found!")
+                        st.rerun()
+                    else:
+                        # Unexpected format
+                        st.session_state.getting_loc = False
+
+            st.caption(f"Current: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
+            
+            # Aspect Ratio Logic
+            lock_aspect = st.checkbox("🔒 Lock Aspect to Box", value=True, key="lock_aspect")
+            
+            def update_h_from_w():
+                if st.session_state.lock_aspect and st.session_state.box_w > 0 and st.session_state.box_h > 0:
+                    ratio = st.session_state.box_h / st.session_state.box_w
+                    st.session_state.height_km = st.session_state.width_km * ratio
+            
+            def update_w_from_h():
+                 if st.session_state.lock_aspect and st.session_state.box_w > 0 and st.session_state.box_h > 0:
+                    ratio = st.session_state.box_w / st.session_state.box_h
+                    st.session_state.width_km = st.session_state.height_km * ratio
+            
+            def update_dims_from_box():
+                 if st.session_state.lock_aspect:
+                     update_h_from_w()
+
+            c1, c2 = st.columns(2)
+            c1.number_input("W (km)", step=0.5, key="width_km", on_change=update_h_from_w, min_value=1.0, help="Minimum 1.0 km")
+            c2.number_input("H (km)", step=0.5, key="height_km", on_change=update_w_from_h, min_value=1.0, help="Minimum 1.0 km")
+            
+            st.caption("Physical Box Dimensions:")
+            c_b1, c_b2, c_b3 = st.columns(3)
+            c_b1.number_input("W (mm)", step=10.0, key="box_w", min_value=10.0, on_change=update_dims_from_box)
+            c_b2.number_input("H (mm)", step=10.0, key="box_h", min_value=10.0, on_change=update_dims_from_box)
+            c_b3.number_input("D (mm)", step=5.0, key="box_d", min_value=5.0)
         
         with st.expander("3. Material", expanded=True):
             st.number_input("Thickness (mm)", min_value=0.1, step=0.1, key="mat_th", help="Thickness of the material sheet.")

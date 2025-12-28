@@ -178,14 +178,19 @@ def generate_all_layer_data_v3(_smooth_data, _min_elev, _m_per_layer, _n_terrain
             if not settings.get('fast_preview', False) and settings.get('auto_fuse', True):
                  final_geom = fuse_close_polygons(final_geom, gap=settings.get('fuse_gap', 0.4))
             
-            # Smart Cleanup: Only flag thin BRIDGES, keep thin PROTRUSIONS
-            if settings.get('fast_preview', False):
-                 # Fast Mode: Skip cleanup and analysis. Just simplify.
-                 cleaned_geom = final_geom.simplify(0.05, preserve_topology=True)
-                 problem_list = []
+            # 3. Structural Optimization (Bridge fusing)
+            # We detect thin "isthmuses" that might break and fuse them.
+            # Also detects floating islands and bridges them to mainland.
+            if not settings.get('fast_preview', False):
+                # Pre-simplify to speed up topology checks
+                if settings.get('pre_simplify', True):
+                    final_geom = final_geom.simplify(0.05, preserve_topology=True)
+
+                cleaned_geom, problem_list = analyze_thin_features(final_geom, min_width=settings.get('min_feature_width', 3.0), auto_cleanup=settings.get('auto_cleanup', True))
             else:
-                 # Full Mode: Detailed cleanup
-                 cleaned_geom, problem_list = analyze_thin_features(final_geom, min_width=settings.get('min_feature_width', 3.0), auto_cleanup=settings.get('auto_cleanup', True))
+                # Skip heavy structural/healing logic in preview
+                cleaned_geom = final_geom.simplify(0.05, preserve_topology=True)
+                problem_list = []
             
             final_polys_list = _classify_polygons(cleaned_geom, settings)
             

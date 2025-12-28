@@ -121,7 +121,7 @@ def render_layer_tools(cur_idx, n_total, all_layer_geoms, final_geoms, layer_col
         
         if current_layer_mods:
             total_area = sum(m['area'] for m in current_layer_mods)
-            st.success(f"**✅ Auto-Healed {len(current_layer_mods)} spots**\n\n(+{total_area:.1f}mm² mass)")
+            st.success(f"**✅ Optimized {len(current_layer_mods)} spots**\n\n(+{total_area:.1f}mm² mass)")
         else:
             if num_auto_bridges > 0:
                 st.info(f"Layer is robust.\n\n**🔗 {num_auto_bridges} Islands Connected**")
@@ -136,7 +136,7 @@ def render_layer_tools(cur_idx, n_total, all_layer_geoms, final_geoms, layer_col
         show_layer_below = st.checkbox("Show Layer Below", value=True, key=f"show_below_{cur_idx}")
         show_raw_diff = st.checkbox("Show Original Input", value=False, help="Show the raw geometry before healing (Red Dashed Line).", key=f"show_raw_{cur_idx}")
         
-        st.caption("Auto-Heal is active.")
+        st.caption("Structural Optimization is active.")
 
     # --- VISUALIZATION COLUMN ---
     with c_vis:
@@ -260,7 +260,7 @@ def render_export(final_geoms, settings, current_dowels):
         else:
             nest_aspect = st.number_input("Target Aspect (L/W)", min_value=1.0, value=1.5, step=0.1)
 
-        nest_gap = st.number_input("Min Gap (mm)", value=2.0, min_value=0.0, step=0.5)
+        nest_gap = st.number_input("Min Gap (mm)", value=4.0, min_value=0.0, step=0.5)
         nest_rotation = st.checkbox("Allow Rotation", value=True)
         
         if st.button("🧩 Calculate Layout", type="primary", use_container_width=True):
@@ -272,29 +272,73 @@ def render_export(final_geoms, settings, current_dowels):
             n_sheets_j = len(st.session_state.get('nested_jigs', []))
             st.success(f"Packed into {n_sheets_c} Component Sheet(s) + {n_sheets_j} Jig Sheet(s)")
             
+            # Cache the expensive ZIP generation.
+            # Fix: Use '_' prefix to prevent Streamlit from trying to hash complex geometry objects.
+            # We pass 'nesting_timestamp' as the cache key to force updates when data changes.
+            @st.cache_data
+            def get_cached_zip(_nc, _nj, _ncd, _njd, fmt, wc, ec, pname, version_id):
+                return exporter.generate_nested_zip(_nc, _nj, _ncd, _njd, fmt, wc, ec)
+            
+            nest_ver = st.session_state.get('nesting_version', 0)
+            zip_data = get_cached_zip(st.session_state.nested_components, st.session_state.get('nested_jigs'), 
+                                     st.session_state.nested_comp_dims, st.session_state.get('nested_jig_dims'), 
+                                     export_fmt, ex_wood_color, "#000000", st.session_state.proj_name, nest_ver)
+
             st.download_button(f"⬇️ Download Nested {export_fmt} ZIP", 
-                               data=exporter.generate_nested_zip(st.session_state.nested_components, st.session_state.get('nested_jigs'), st.session_state.nested_comp_dims, st.session_state.get('nested_jig_dims'), export_fmt, ex_wood_color, "#000000"),
+                               data=zip_data,
                                file_name=f"{st.session_state.proj_name}_Nested_{export_fmt}.zip", mime="application/zip", use_container_width=True)
 
     with c_ex1:
         st.markdown("#### Export Preview")
-        for i, layer_polys in enumerate(final_geoms):
-            layer_num = i + 1
-            with st.container():
-                st.markdown(f"**Layer {layer_num}**")
-                c_part, c_jig = st.columns(2)
-                svg_parts = geometry_engine.generate_svg_string(layer_polys, st.session_state.box_w, st.session_state.box_h, fill_color=ex_wood_color, stroke_color="black", add_background=False)
-                b64_parts = base64.b64encode(svg_parts.encode('utf-8')).decode("utf-8")
-                c_part.markdown(f'<img src="data:image/svg+xml;base64,{b64_parts}" style="width: 100%;">', unsafe_allow_html=True)
+        
+        tab_layers, tab_nesting = st.tabs(["Individual Layers", "Nested Sheets"])
+        
+        with tab_layers:
+            for i, layer_polys in enumerate(final_geoms):
+                layer_num = i + 1
+                with st.container():
+                    st.markdown(f"**Layer {layer_num}**")
+                    c_part, c_jig = st.columns(2)
+                    svg_parts = geometry_engine.generate_svg_string(layer_polys, st.session_state.box_w, st.session_state.box_h, fill_color=ex_wood_color, stroke_color="black", add_background=False)
+                    b64_parts = base64.b64encode(svg_parts.encode('utf-8')).decode("utf-8")
+                    c_part.markdown(f'<img src="data:image/svg+xml;base64,{b64_parts}" style="width: 100%;">', unsafe_allow_html=True)
+                    
+                    jig_mods = st.session_state.jig_modifications.get(f"L{layer_num}", [])
+                    jig_data = geometry_engine.generate_jig_geometry(layer_polys, current_dowels, st.session_state.box_w, st.session_state.box_h, layer_num, jig_mods, conn_width=st.session_state.jig_conn_width, grid_spacing=st.session_state.get('jig_grid_spacing', 20.0), fluid_smoothing=st.session_state.get('jig_fluid', True))
+                    if jig_data:
+                        svg_jig = geometry_engine.generate_svg_string([{'poly': jig_data['poly']}], st.session_state.box_w, st.session_state.box_h, fill_color="#de2d26", stroke_color="#a50f15", add_background=False, fill_opacity=0.8)
+                        b64_jig = base64.b64encode(svg_jig.encode('utf-8')).decode("utf-8")
+                        c_jig.markdown(f'<img src="data:image/svg+xml;base64,{b64_jig}" style="width: 100%;">', unsafe_allow_html=True)
+                    else: c_jig.info("Not required")
+                st.divider()
+        
+        with tab_nesting:
+            if 'nested_components' in st.session_state:
+                st.info(f"Sheet Size: {st.session_state.nested_comp_dims[0]:.0f} x {st.session_state.nested_comp_dims[1]:.0f} mm")
                 
-                jig_mods = st.session_state.jig_modifications.get(f"L{layer_num}", [])
-                jig_data = geometry_engine.generate_jig_geometry(layer_polys, current_dowels, st.session_state.box_w, st.session_state.box_h, layer_num, jig_mods, conn_width=st.session_state.jig_conn_width, grid_spacing=st.session_state.get('jig_grid_spacing', 20.0), fluid_smoothing=st.session_state.get('jig_fluid', True))
-                if jig_data:
-                    svg_jig = geometry_engine.generate_svg_string([{'poly': jig_data['poly']}], st.session_state.box_w, st.session_state.box_h, fill_color="#de2d26", stroke_color="#a50f15", add_background=False, fill_opacity=0.8)
-                    b64_jig = base64.b64encode(svg_jig.encode('utf-8')).decode("utf-8")
-                    c_jig.markdown(f'<img src="data:image/svg+xml;base64,{b64_jig}" style="width: 100%;">', unsafe_allow_html=True)
-                else: c_jig.info("Not required")
-            st.divider()
+                # Render Components Sheets
+                comps = st.session_state.nested_components
+                for i, sheet in enumerate(comps):
+                    st.markdown(f"**Component Sheet {i+1}**")
+                    # Construct poly list for SVG
+                    sheet_polys = [{'poly': item['poly']} for item in sheet]
+                    svg_s = geometry_engine.generate_svg_string(sheet_polys, st.session_state.nested_comp_dims[0], st.session_state.nested_comp_dims[1], fill_color=ex_wood_color, stroke_color="black", add_background=True)
+                    b64_s = base64.b64encode(svg_s.encode('utf-8')).decode("utf-8")
+                    st.markdown(f'<img src="data:image/svg+xml;base64,{b64_s}" style="width: 100%;">', unsafe_allow_html=True)
+                    st.divider()
+                
+                # Render Jig Sheets (if any)
+                jigs = st.session_state.get('nested_jigs', [])
+                for i, sheet in enumerate(jigs):
+                    st.markdown(f"**Jig Sheet {i+1}**")
+                    sheet_polys = [{'poly': item['poly']} for item in sheet]
+                    svg_j = geometry_engine.generate_svg_string(sheet_polys, st.session_state.nested_jig_dims[0], st.session_state.nested_jig_dims[1], fill_color="#de2d26", stroke_color="#a50f15", add_background=True, fill_opacity=0.8)
+                    b64_j = base64.b64encode(svg_j.encode('utf-8')).decode("utf-8")
+                    st.markdown(f'<img src="data:image/svg+xml;base64,{b64_j}" style="width: 100%;">', unsafe_allow_html=True)
+                    st.divider()
+
+            else:
+                st.info("Click 'Calculate Layout' to see the nesting preview.")
 
 # --- Helpers ---
 
@@ -681,8 +725,11 @@ def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, mode, fw, f
 
         comps, cw, ch = pack(all_components)
         jigs, jw, jh = pack(all_jigs)
+        import time
         st.session_state.nested_components = comps
         st.session_state.nested_comp_dims = (cw, ch)
         st.session_state.nested_jigs = jigs
         st.session_state.nested_jig_dims = (jw, jh)
+        # Increment Cache Version
+        st.session_state.nesting_version = time.time()
         st.toast("Nesting complete!", icon="🧩")

@@ -7,8 +7,8 @@ AUTOSAVE_FILE = "autosave.pkl"
 def initialize_session_state():
     """Initializes all default session state variables."""
     defaults = {
-        'lat': 45.976, 'lon': 7.658, 'width_km': 50.0, 'height_km': 50.0,
-        'box_w': 200.0, 'box_h': 200.0, 'box_d': 40.0, 'mat_th': 2.0, 'blur': 1.0,
+        'lat': 45.976, 'lon': 7.658, 'width_km': 15.0, 'height_km': 15.0,
+        'box_w': 190.0, 'box_h': 190.0, 'box_d': 30.0, 'mat_th': 2.0, 'blur': 1.0,
         'min_area': 10.0, 'min_feature_width': 3.0, 'frame_mode': "None", 'frame_width': 4.0,
         'frame_sides': {'top': True, 'bottom': True, 'left': True, 'right': True},
         'use_dowels': True, 'dowel_diam': 3.0, 'num_dowels': 2,

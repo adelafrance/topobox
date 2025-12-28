@@ -10,6 +10,17 @@ CACHE_DIR = "cache"
 if not os.path.exists(CACHE_DIR):
     os.makedirs(CACHE_DIR)
 
+def get_user_location():
+    """Attempts to get user location via IP Geolocation."""
+    try:
+        response = requests.get('https://ipapi.co/json/', timeout=2)
+        if response.status_code == 200:
+            data = response.json()
+            return float(data.get('latitude')), float(data.get('longitude'))
+    except Exception:
+        pass # Fail silently
+    return None
+
 def load_api_key(filename="OpenTopography_API_key.txt"):
     # Check Streamlit Cloud Secrets first
     # Check Streamlit Cloud Secrets first (Handle missing secrets file gracefully)
@@ -41,6 +52,8 @@ def fetch_elevation_data(lat, lon, width_km, height_km, api_key, force_refresh=F
         params = {'demtype': 'COP30', 'south': bounds['south'], 'north': bounds['north'], 'west': bounds['west'], 'east': bounds['east'], 'outputFormat': 'GTiff', 'API_Key': api_key}
         try:
             response = requests.get(url, params=params, timeout=30)
+            if response.status_code == 400:
+                raise Exception(f"OpenTopography API returned 400 Bad Request.\n\nLikely Cause: The selected area is too small (<1.0 km).\n\nPlease increase Width/Height of the map.")
             response.raise_for_status()
             with open(filename, "wb") as f:
                 f.write(response.content)

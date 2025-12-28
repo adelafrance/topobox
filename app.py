@@ -43,6 +43,16 @@ if 'user_mode' not in st.session_state:
         st.session_state.user_mode = 'maker'
 if 'admin_pwd' not in st.session_state: st.session_state.admin_pwd = ""
 
+# --- GEOLOCATION ---
+if 'location_initialized' not in st.session_state:
+    # Try to find user location (only once on startup)
+    user_loc = data_loader.get_user_location()
+    if user_loc:
+        st.session_state.lat, st.session_state.lon = user_loc
+        st.session_state.coords_input = f"{user_loc[0]:.4f}, {user_loc[1]:.4f}"
+        st.toast(f"📍 Location detected!", icon="🌍")
+    st.session_state.location_initialized = True
+
 app_state.restore_autosave()
 app_state.run_migrations()
 app_state.save_autosave()
@@ -213,16 +223,19 @@ if st.session_state.run_btn or st.session_state.elevation_data is not None:
                 all_layer_geoms = []
                 all_modifications = []
                 
-                progress_bar = st.progress(0, text="Auto-Healing Layers...")
+                progress_bar = st.progress(0, text="Optimizing Structure...")
                 
+                # --- PROCESS LAYERS ---
+                # --- PROCESS LAYERS ---
+                final_geoms = []
                 total_layers = len(raw_layer_geoms)
                 
                 for i in range(total_layers):
-                    layer_raw = raw_layer_geoms[i]
                     layer_num = i + 1
+                    layer_raw = raw_layer_geoms[i]
                     
-                    # Update Progress
-                    progress_bar.progress((i + 1) / total_layers, text=f"Auto-Healing Layer {layer_num}/{total_layers}...")
+                    # Log Progress
+                    progress_bar.progress((i + 1) / total_layers, text=f"Optimizing Layer {layer_num}/{total_layers}...")
                     
                     # Get support from processing history (previous layer in this loop)
                     layer_below_polys = None
