@@ -65,7 +65,6 @@ def render_sidebar(api_key, process_callback):
     with st.sidebar:
         with st.expander("📂 Project", expanded=True):
             st.text_input("Name", key="proj_name")
-            st.text_input("Name", key="proj_name")
             
             # Detect Deployment Environment
             is_web = hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web"
