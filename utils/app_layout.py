@@ -65,7 +65,11 @@ def render_sidebar(api_key, process_callback):
     with st.sidebar:
         with st.expander("📂 Project", expanded=True):
             # Detect Deployment Environment
-            is_web = hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web"
+            is_web = False
+            try:
+                if hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web":
+                    is_web = True
+            except Exception: pass
             
             # File Uploader First (to allow updating proj_name)
             if is_maker and is_web:

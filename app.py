@@ -31,7 +31,13 @@ app_state.initialize_session_state()
 
 if 'user_mode' not in st.session_state: 
     # Auto-Detect Environment
-    if hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web":
+    is_web = False
+    try:
+        if hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web":
+            is_web = True
+    except Exception: pass
+            
+    if is_web:
         st.session_state.user_mode = 'creator'
     else:
         st.session_state.user_mode = 'maker'

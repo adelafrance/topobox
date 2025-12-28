@@ -12,8 +12,13 @@ if not os.path.exists(CACHE_DIR):
 
 def load_api_key(filename="OpenTopography_API_key.txt"):
     # Check Streamlit Cloud Secrets first
-    if hasattr(st, "secrets") and "OPENTOPOGRAPHY_API_KEY" in st.secrets:
-        return st.secrets["OPENTOPOGRAPHY_API_KEY"]
+    # Check Streamlit Cloud Secrets first (Handle missing secrets file gracefully)
+    try:
+        if hasattr(st, "secrets") and "OPENTOPOGRAPHY_API_KEY" in st.secrets:
+            return st.secrets["OPENTOPOGRAPHY_API_KEY"]
+    except Exception:
+        pass # Secrets not found, fall back to file
+
     
     # Fallback to local file
     try:
