@@ -1,0 +1,36 @@
+name: topo_project
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  # Core Python
+  - python=3.11
+  
+  # Data Fetching & Math
+  - requests          # For calling OpenTopography API
+  - numpy             # Array math
+  - scipy             # Smoothing and filters
+  - pandas            # Data management
+  
+  # Geospatial (The Heavy Lifters)
+  - rasterio          # Reading Elevation GeoTIFFs
+  - shapely           # Geometry manipulation (The engine for your layers)
+  - geopandas         # Handling vector data tables
+  - pyproj            # Coordinate projection (Lat/Lon -> Meters)
+  
+  # Image Processing
+  - scikit-image      # For finding contours (marching squares)
+  
+  # Visualization
+  - plotly            # Interactive 3D models
+  - matplotlib        # Static 2D plotting (debugging contours)
+  
+  # Exporting for Machines
+  - ezdxf             # Creating DXF files for Laser Cutters
+  - svgwrite          # Creating SVG files for Cricut/Plotters
+  
+  # Development Tools
+  - jupyterlab        # For interactive prototyping
+  - tqdm              # Progress bars (essential for long processing)
+  - black             # Code formatting (keeps code professional)
+  - watchdog          # Efficient file monitoring for Streamlit

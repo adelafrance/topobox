@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pkl
+.DS_Store
+cache/
+projects/
+OpenTopography_API_key.txt
+.streamlit/secrets.toml
+venv/
+.env
+*.bak

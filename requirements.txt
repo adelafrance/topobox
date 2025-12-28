@@ -1,0 +1,8 @@
+streamlit
+numpy
+scipy
+scikit-image
+shapely
+svgwrite
+matplotlib
+plotly
