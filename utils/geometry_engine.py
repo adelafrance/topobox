@@ -25,6 +25,11 @@ def clean_geometry(geom, min_width=3.0):
     Returns the cleaned geometry and the parts that were removed.
     """
     if geom is None or geom.is_empty: return geom, None
+    
+    # Optimization: Simplify before expensive buffering
+    # 0.05mm tolerance is well below laser kerf (0.2mm) so visual impact is zero.
+    geom = geom.simplify(0.05, preserve_topology=True)
+    
     # Buffer negative then positive (Opening)
     # We use slightly less than half width (0.495) to preserve features that are exactly the min width.
     cleaned = geom.buffer(-min_width * 0.495).buffer(min_width * 0.495)
@@ -41,8 +46,8 @@ def analyze_thin_features(geom, min_width=3.0, auto_cleanup=True):
     
     # 1. Create robust base (remove all thin stuff)
     # Use high resolution buffers to prevent angular artifacts
-    eroded = geom.buffer(-min_width * 0.495, join_style=1, resolution=64)
-    cleaned = eroded.buffer(min_width * 0.495, join_style=1, resolution=64)
+    eroded = geom.buffer(-min_width * 0.495, join_style=1, resolution=32)
+    cleaned = eroded.buffer(min_width * 0.495, join_style=1, resolution=32)
     
     # 2. Find what was removed
     diff = geom.difference(cleaned)
@@ -86,7 +91,7 @@ def process_terrain_raster(elevation_data, settings):
     # --- SUPER-RESOLUTION UPSCALING ---
     # Low-res input creates "pixel step" jaggedness in contours.
     # We enforce a high target resolution (e.g. ~2000px) to ensure smooth curves.
-    target_dim = 2000.0
+    target_dim = 1200.0  # Optimized for Cloud Performance (was 2000.0)
     h, w = elevation_data.shape
     scale_factor = 1.0
     
