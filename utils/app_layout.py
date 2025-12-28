@@ -153,6 +153,15 @@ def render_sidebar(api_key, process_callback):
             if 'coords_input' not in st.session_state:
                 st.session_state.coords_input = f"{st.session_state.lat:.4f}, {st.session_state.lon:.4f}"
             
+            def _parse_coords(txt):
+                try:
+                    parts = txt.split(',')
+                    if len(parts) == 2:
+                        st.session_state.lat = float(parts[0].strip())
+                        st.session_state.lon = float(parts[1].strip())
+                except:
+                    pass
+            
             c_txt, c_btn = st.columns([0.85, 0.15])
             with c_txt:
                 st.text_input("Lat/Lon", key="coords_input", on_change=lambda: _parse_coords(st.session_state.coords_input), help="Format: Lat, Lon", label_visibility="collapsed")

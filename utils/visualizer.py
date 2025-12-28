@@ -118,7 +118,8 @@ def create_3d_scene(all_layer_geoms, settings, current_layer_idx, n_total_layers
         xaxis=dict(visible=show_axes, title='X (mm)'),
         yaxis=dict(visible=show_axes, title='Y (mm)'),
         zaxis=dict(visible=show_axes, title='Z (mm)', range=[0, box_d + 30]),
-        camera=camera_override or dict(eye=dict(x=1.5, y=-1.5, z=1.5))
+        # Backed out zoom (2.0) to prevent edge clipping as per user request
+        camera=camera_override or dict(eye=dict(x=2.0, y=-2.0, z=2.0))
     )
     fig.update_layout(showlegend=False, scene=scene_dict, margin=dict(l=0, r=0, b=0, t=0))
     return fig

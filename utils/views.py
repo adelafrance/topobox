@@ -58,7 +58,7 @@ def render_design_view(final_geoms, settings, cur_idx, n_total, all_layer_geoms)
         
         st.caption("Snap View")
         cc1, cc2, cc3, cc4 = st.columns(4)
-        cc1.button("Iso", on_click=set_cam, args=({'x':1.5,'y':-1.5,'z':1.5}, {'x':0,'y':0,'z':1}, 'design'), key="iso_btn", use_container_width=True)
+        cc1.button("Iso", on_click=set_cam, args=({'x':2.0,'y':-2.0,'z':2.0}, {'x':0,'y':0,'z':1}, 'design'), key="iso_btn", use_container_width=True)
         cc2.button("Top", on_click=set_cam, args=({'x':0,'y':0,'z':2.5}, {'x':0,'y':1,'z':0}, 'design'), key="top_btn", use_container_width=True)
         cc3.button("Side", on_click=set_cam, args=({'x':2.5,'y':0,'z':0}, {'x':0,'y':0,'z':1}, 'design'), key="side_btn", use_container_width=True)
         cc4.button("Front", on_click=set_cam, args=({'x':0,'y':2.5,'z':0}, {'x':0,'y':0,'z':1}, 'design'), key="front_btn", use_container_width=True)
@@ -191,7 +191,7 @@ def render_preview(final_geoms, settings, n_total, all_layer_geoms):
         st.markdown("##### Preview Controls")
         st.caption("Snap View")
         cc1, cc2, cc3, cc4 = st.columns(4)
-        cc1.button("Iso", on_click=set_cam, args=({'x':1.5,'y':-1.5,'z':1.5}, {'x':0,'y':0,'z':1}, 'preview'), key="iso_btn_prev", use_container_width=True)
+        cc1.button("Iso", on_click=set_cam, args=({'x':2.0,'y':-2.0,'z':2.0}, {'x':0,'y':0,'z':1}, 'preview'), key="iso_btn_prev", use_container_width=True)
         cc2.button("Top", on_click=set_cam, args=({'x':0,'y':0,'z':2.5}, {'x':0,'y':1,'z':0}, 'preview'), key="top_btn_prev", use_container_width=True)
         cc3.button("Side", on_click=set_cam, args=({'x':2.5,'y':0,'z':0}, {'x':0,'y':0,'z':1}, 'preview'), key="side_btn_prev", use_container_width=True)
         cc4.button("Front", on_click=set_cam, args=({'x':0,'y':2.5,'z':0}, {'x':0,'y':0,'z':1}, 'preview'), key="front_btn_prev", use_container_width=True)
@@ -270,7 +270,15 @@ def render_export(final_geoms, settings, current_dowels):
         if 'nested_components' in st.session_state:
             n_sheets_c = len(st.session_state.nested_components)
             n_sheets_j = len(st.session_state.get('nested_jigs', []))
-            st.success(f"Packed into {n_sheets_c} Component Sheet(s) + {n_sheets_j} Jig Sheet(s)")
+            
+            w_c, h_c = st.session_state.nested_comp_dims
+            w_j, h_j = st.session_state.get('nested_jig_dims', (0,0))
+            
+            msg = f"Packed: {n_sheets_c} Part Sheet(s)"
+            if n_sheets_j > 0: msg += f" + {n_sheets_j} Jig Sheet(s)"
+            st.success(msg)
+            
+            st.caption(f"Parts Size: **{w_c:.0f}x{h_c:.0f}mm**" + (f" | Jigs Size: **{w_j:.0f}x{h_j:.0f}mm**" if n_sheets_j > 0 else ""))
             
             # Cache the expensive ZIP generation.
             # Fix: Use '_' prefix to prevent Streamlit from trying to hash complex geometry objects.
@@ -689,6 +697,8 @@ def _render_2d_assembly_view(cur_idx, current_layer_polys, current_dowels, jig_m
     st.plotly_chart(fig_2d, use_container_width=True, key=f"assembly_plot_L{cur_idx}", config={'displayModeBar': True, 'displaylogo': False}, on_select="rerun", selection_mode=["points", "box"])
 
 def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, mode, fw, fh):
+    nest_progress = st.progress(0, text="Initializing Nesting Engine...")
+    
     with st.spinner("Calculating optimal layout..."):
         all_components = []
         all_jigs = []
@@ -699,8 +709,10 @@ def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, mode, fw, f
             jig_data = geometry_engine.generate_jig_geometry(layer, current_dowels, st.session_state.box_w, st.session_state.box_h, i+1, jig_mods, conn_width=st.session_state.jig_conn_width, grid_spacing=st.session_state.get('jig_grid_spacing', 20.0), fluid_smoothing=st.session_state.get('jig_fluid', True))
             if jig_data: all_jigs.append({'poly': jig_data['poly'], 'layer': i+1, 'type': 'jig'})
 
-        def pack(items):
-            if not items: return [], 0, 0
+        def pack(items, p_start=0.0, p_width=1.0, label="Items"):
+            if not items: 
+                nest_progress.progress(p_start + p_width, text=f"{label} Skipped (Empty)")
+                return [], 0, 0
             
             # Helper to run pack
             def run_packer(w, h):
@@ -709,27 +721,70 @@ def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, mode, fw, f
                 return packer.sheets
 
             if mode == "Fixed Size":
+                nest_progress.progress(p_start + p_width, text=f"Packing {label} (Fixed Size)...")
                 return run_packer(fw, fh), fw, fh
             else:
                 # Auto-Size (Infinite Sheet Heuristic)
-                total_area = sum(i['poly'].area for i in items)
-                est_w = math.sqrt(total_area / 0.8 * aspect)
-                est_h = est_w / aspect
-                # Try iteratively
-                for i in range(20):
-                    w, h = est_w * (1 + 0.05*i), est_h * (1 + 0.05*i)
-                    sheets = run_packer(w, h)
-                    if len(sheets) == 1:
-                        return sheets, w, h
-                return sheets, w, h # Return whatever we got (likely last attempt)
+                # FIX: Use Bounding Box Area instead of Material Area.
+                total_bbox_area = 0
+                max_w_item = 0
+                max_h_item = 0
+                
+                for i in items:
+                    b = i['poly'].bounds
+                    w, h = b[2]-b[0], b[3]-b[1]
+                    total_bbox_area += (w * h)
+                    max_w_item = max(max_w_item, w)
+                    max_h_item = max(max_h_item, h)
 
-        comps, cw, ch = pack(all_components)
-        jigs, jw, jh = pack(all_jigs)
-        import time
-        st.session_state.nested_components = comps
-        st.session_state.nested_comp_dims = (cw, ch)
-        st.session_state.nested_jigs = jigs
-        st.session_state.nested_jig_dims = (jw, jh)
-        # Increment Cache Version
-        st.session_state.nesting_version = time.time()
-        st.toast("Nesting complete!", icon="🧩")
+                # ADAPTIVE PACKING ALGORITHM
+                min_w = max_w_item + gap
+                ideal_w = math.sqrt(total_bbox_area / 0.85 * aspect) # 85% efficiency guess
+                current_w = max(min_w, ideal_w * 0.5)
+                
+                best_result = None
+                best_metric = float('inf') 
+                step_val = max(10, (ideal_w * 1.5 - current_w) / 10) 
+                
+                N_STEPS = 15
+                for i in range(N_STEPS):
+                    # update progress
+                    p_current = p_start + (i / N_STEPS) * p_width
+                    nest_progress.progress(p_current, text=f"Optimizing {label}: Pass {i+1}/{N_STEPS}...")
+                    
+                    current_h = (total_bbox_area * 1.5) / current_w + max_h_item
+                    sheets = run_packer(current_w, current_h)
+                    
+                    if len(sheets) == 1:
+                        items = sheets[0]
+                        max_x = max(it['x'] + it['w'] for it in items)
+                        max_y = max(it['y'] + it['h'] for it in items)
+                        used_w = max_x
+                        used_h = max_y
+                        current_ratio = used_w / used_h if used_h > 0 else 0
+                        metric = abs(current_ratio - aspect)
+                        
+                        if best_result is None or metric < best_metric:
+                            best_metric = metric
+                            best_result = (sheets, used_w + 5.0, used_h + 5.0) 
+                        
+                        if current_ratio > aspect * 1.2:
+                             break
+                    current_w += step_val
+                
+                nest_progress.progress(p_start + p_width, text=f"{label} Optimized!")
+                if best_result: return best_result
+                return sheets, current_w, current_h
+
+        comps, cw, ch = pack(all_components, 0.0, 0.5, "Parts")
+        jigs, jw, jh = pack(all_jigs, 0.5, 0.5, "Jigs")
+    
+    nest_progress.empty()
+    import time
+    st.session_state.nested_components = comps
+    st.session_state.nested_comp_dims = (cw, ch)
+    st.session_state.nested_jigs = jigs
+    st.session_state.nested_jig_dims = (jw, jh)
+    # Increment Cache Version
+    st.session_state.nesting_version = time.time()
+    st.toast("Nesting complete!", icon="🧩")

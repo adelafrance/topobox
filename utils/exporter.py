@@ -12,7 +12,7 @@ from matplotlib.patches import Polygon as MplPolygon, PathPatch
 from matplotlib.path import Path
 from matplotlib.collections import PatchCollection
 from matplotlib.backends.backend_pdf import PdfPages
-from shapely.geometry import Polygon
+from shapely.geometry import Polygon, Point
 from shapely import affinity
 from utils import geometry_engine
 
@@ -26,14 +26,43 @@ def generate_assembly_guide_pdf(final_geoms, settings, jig_modifications_dict, c
     def create_patch(poly, **kwargs):
         vertices = []
         codes = []
+        
+        # Helper for a single ring
+        def process_ring(x_coords, y_coords):
+            if len(x_coords) < 3: return # Degenerate
+            # Explicitly construct codes
+            # Path expects len(codes) match len(vertices)
+            # MOVETO, LINETO... LINETO, CLOSEPOLY
+            # The last vertex in Shapely is usually same as first.
+            # Matplotlib CLOSEPOLY ignores the vertex but needs a placeholder.
+            ring_codes = [Path.MOVETO] + [Path.LINETO] * (len(x_coords) - 2) + [Path.CLOSEPOLY]
+            return np.column_stack((x_coords, y_coords)), ring_codes
+
         x, y = poly.exterior.xy
-        vertices.append(np.column_stack((x, y)))
-        codes.append([Path.MOVETO] + [Path.LINETO] * (len(x) - 2) + [Path.CLOSEPOLY])
+        res = process_ring(x, y)
+        if not res:
+            return PathPatch(Path([(0,0)], [Path.MOVETO]), **kwargs) # Return dummy if exterior is degenerate
+        
+        v, c = res
+        vertices.append(v)
+        codes.append(c)
+        
         for interior in poly.interiors:
             x, y = interior.xy
-            vertices.append(np.column_stack((x, y)))
-            codes.append([Path.MOVETO] + [Path.LINETO] * (len(x) - 2) + [Path.CLOSEPOLY])
-        path = Path(np.concatenate(vertices), np.concatenate(codes))
+            # Check length inside helper
+            res = process_ring(x, y)
+            if res:
+                v, c = res
+                vertices.append(v)
+                codes.append(c)
+        
+        if not codes: return PathPatch(Path([(0,0)], [Path.MOVETO]), **kwargs) # Return dummy
+        
+        # Flatten and ensure type
+        flat_verts = np.concatenate(vertices)
+        flat_codes = np.concatenate(codes).astype(np.uint8) # Explicit typing
+        
+        path = Path(flat_verts, flat_codes)
         return PathPatch(path, **kwargs)
 
     def adjust_color(hex_color, factor):
@@ -50,118 +79,177 @@ def generate_assembly_guide_pdf(final_geoms, settings, jig_modifications_dict, c
         return [iso_cos, -iso_cos, iso_sin, iso_sin, 0, z]
 
     def draw_iso_shadowbox(ax, w, h, d):
+        # Reverted to simple floor shadow per request
         floor_poly = Polygon([(0,0), (w,0), (w,h), (0,h)])
         floor_proj = affinity.affine_transform(floor_poly, get_iso_transform(0))
         ax.add_patch(create_patch(floor_proj, facecolor='#333333', edgecolor='none', alpha=0.1))
         ax.add_patch(create_patch(floor_proj, facecolor='none', edgecolor='#333333', linewidth=1, linestyle='--'))
 
     with PdfPages(buffer) as pdf:
-        # Title Page
-        fig = Figure(figsize=(8.27, 11.69))
-        ax = fig.add_subplot(111)
-        ax.axis('off')
-        ax.text(0.5, 0.90, "ASSEMBLY GUIDE", ha='center', va='bottom', fontsize=32, weight='bold', color='#2c3e50', fontfamily='sans-serif')
-        ax.text(0.5, 0.85, settings.get('proj_name', 'Project'), ha='center', va='top', fontsize=20, color='#7f8c8d', fontfamily='sans-serif')
-        ax.plot([0.1, 0.9], [0.82, 0.82], color='#bdc3c7', linewidth=1, transform=ax.transAxes)
+        # ... (Styling constants) ...
+        # --- STYLING CONSTANTS ---
+        C_PRIMARY = '#2c3e50'   # Slate Blue (Headers)
+        C_ACCENT = '#e74c3c'    # Red (Highlights)
+        C_WOOD = '#E3C099'      # Wood Base
+        C_JIG = '#e67e22'       # Orange (Jigs)
+        C_TEXT = '#34495e'
+        C_GHOST = '#ecf0f1'     # Previous layers (Ghosted)
+        FONT_MAIN = 'sans-serif'
         
-        ax_iso = fig.add_axes([0.1, 0.40, 0.8, 0.40])
+        # --- HELPERS ---
+        def draw_header(fig, title, subtitle, progress=0.0):
+            # Banner Background
+            ax_head = fig.add_axes([0, 0.90, 1, 0.10])
+            ax_head.axis('off')
+            ax_head.add_patch(MplPolygon([(0,0), (1,0), (1,1), (0,1)], transform=ax_head.transAxes, fc=C_PRIMARY, ec='none'))
+            
+            # Text
+            fig.text(0.05, 0.95, title, fontsize=24, color='white', weight='bold', fontfamily=FONT_MAIN, va='center')
+            fig.text(0.95, 0.95, subtitle, fontsize=14, color='#bdc3c7', ha='right', fontfamily=FONT_MAIN, va='center')
+            
+            # Progress Bar (at bottom of banner)
+            if progress > 0:
+                ax_head.add_patch(MplPolygon([(0,0), (progress,0), (progress,0.05), (0,0.05)], transform=ax_head.transAxes, fc=C_ACCENT, ec='none'))
+
+        def draw_footer(fig, page_num):
+            fig.text(0.5, 0.02, f"Page {page_num} • {settings.get('proj_name', 'Project')} Assembly Guide", ha='center', fontsize=8, color='#95a5a6', fontfamily=FONT_MAIN)
+
+        # --- COVER PAGE ---
+        fig = Figure(figsize=(8.27, 11.69)) # A4
+        
+        # Hero Image (Iso View)
+        ax_iso = fig.add_axes([0.1, 0.35, 0.8, 0.45])
         ax_iso.axis('off')
         ax_iso.set_aspect('equal')
         total_h = len(final_geoms) * settings['mat_th']
-        draw_iso_shadowbox(ax_iso, w_mm, h_mm, total_h + 5)
+        # draw_iso_shadowbox(ax_iso, w_mm, h_mm, total_h + 5) # DISABLED ON COVER PER REQUEST
         
         n_layers = len(final_geoms)
         for i, layer_polys in enumerate(final_geoms):
-            z_height = i * settings['mat_th']
-            factor = 0.75 + (0.35 * i / max(1, n_layers - 1))
-            layer_face = adjust_color(wood_base, factor)
-            for p in layer_polys:
+             z_height = i * settings['mat_th']
+             factor = 0.75 + (0.35 * i / max(1, n_layers - 1))
+             layer_face = adjust_color(C_WOOD, factor)
+             for p in layer_polys:
                 if 'poly' in p and not p['poly'].is_empty:
-                    poly = p['poly']
-                    polys = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
+                    polys = [p['poly']] if p['poly'].geom_type == 'Polygon' else list(p['poly'].geoms)
                     for sub in polys:
                         iso_poly = affinity.affine_transform(sub, get_iso_transform(z_height))
-                        patch = create_patch(iso_poly, facecolor=layer_face, edgecolor=wood_edge, linewidth=0.3)
-                        ax_iso.add_patch(patch)
+                        ax_iso.add_patch(create_patch(iso_poly, facecolor=layer_face, edgecolor=adjust_color(layer_face, 0.8), linewidth=0.3))
         ax_iso.autoscale_view()
+        
+        # Cover Header
+        draw_header(fig, "ASSEMBLY GUIDE", "TopoBox Pro", 0)
+        
+        # Project Info Card
+        fig.text(0.1, 0.28, settings.get('proj_name', 'My Project').upper(), fontsize=36, weight='bold', color=C_PRIMARY, fontfamily=FONT_MAIN)
+        fig.text(0.1, 0.24, "3D Topographic Model", fontsize=16, color=C_TEXT, fontfamily=FONT_MAIN)
+        
+        # Stats Grid
+        ax_stats = fig.add_axes([0.1, 0.08, 0.8, 0.12])
+        ax_stats.axis('off')
+        
+        stats = [
+            ("DIMENSIONS", f"{w_mm:.0f} x {h_mm:.0f} mm"),
+            ("LAYERS", f"{n_layers}"),
+            ("THICKNESS", f"{settings['mat_th']} mm"),
+            ("TOTAL HEIGHT", f"{total_h:.1f} mm"),
+            # REMOVED MASS AS REQUESTED
+        ]
+        
+        for idx, (label, val) in enumerate(stats):
+            x_pos = idx / len(stats)
+            ax_stats.text(x_pos, 0.6, label, fontsize=8, color='#95a5a6', weight='bold')
+            ax_stats.text(x_pos, 0.3, val, fontsize=14, color=C_PRIMARY, weight='bold')
 
-        info_text = (f"Dimensions: {w_mm:.0f} x {h_mm:.0f} mm\nLayers: {len(final_geoms)}\nMaterial Thickness: {settings['mat_th']:.1f} mm")
-        fig.text(0.5, 0.25, info_text, ha='center', va='center', fontsize=14, color='#444444', bbox=dict(boxstyle="round,pad=1", fc="#f8f9fa", ec="#bdc3c7"))
-        ax.text(0.5, 0.05, "Generated by TopoBox Pro", ha='center', va='center', fontsize=8, color='#bdc3c7', fontfamily='sans-serif')
+        fig.text(0.9, 0.02, "Generated by TopoBox", ha='right', fontsize=8, color='#bdc3c7')
         pdf.savefig(fig)
         
-        # Layer Steps
+        # --- LAYER STEPS ---
         for i, layer in enumerate(final_geoms):
             layer_num = i + 1
             jig_mods = jig_modifications_dict.get(f"L{layer_num}", [])
             jig_data = geometry_engine.generate_jig_geometry(layer, current_dowels, w_mm, h_mm, layer_num, jig_mods, conn_width=settings['jig_conn_width'], grid_spacing=settings.get('jig_grid_spacing', 20.0), fluid_smoothing=settings.get('jig_fluid', True))
             
             fig = Figure(figsize=(8.27, 11.69))
-            ax_header = fig.add_axes([0.1, 0.9, 0.8, 0.05])
-            ax_header.axis('off')
-            ax_header.text(0, 0.5, f"STEP {layer_num}", fontsize=24, weight='bold', color='#2c3e50', va='center')
-            ax_header.text(1, 0.5, f"Layer {layer_num}", fontsize=18, color='#7f8c8d', ha='right', va='center')
-            ax_header.plot([0, 1], [0, 0], color='#2c3e50', linewidth=2, transform=ax_header.transAxes)
-            fig.text(0.5, 0.03, f"Page {i+2}", ha='center', fontsize=10, color='#95a5a6')
+            draw_header(fig, f"STEP {layer_num}", f"Layer {layer_num} of {n_layers}", progress=layer_num/n_layers)
             
-            ax_comp = fig.add_axes([0.1, 0.55, 0.35, 0.3])
-            ax_comp.set_title("Components", fontsize=10)
-            ax_comp.set_aspect('equal')
-            ax_comp.set_xlim(0, w_mm); ax_comp.set_ylim(0, h_mm)
-            ax_comp.axis('off')
-            ax_comp.add_patch(MplPolygon([(0,0), (w_mm,0), (w_mm,h_mm), (0,h_mm)], closed=True, fc='none', ec='#dddddd', linestyle='--'))
+            # Left Rail: Parts and Jig (Flat View)
+            # 1. Parts
+            ax_parts = fig.add_axes([0.05, 0.55, 0.40, 0.25])
+            ax_parts.set_aspect('equal')
+            ax_parts.axis('off')
+            ax_parts.set_title("1. Collect Parts", loc='left', fontsize=10, color=C_ACCENT, weight='bold')
+            ax_parts.add_patch(MplPolygon([(0,0), (w_mm,0), (w_mm,h_mm), (0,h_mm)], closed=True, fc='#f9f9f9', ec='#ecf0f1', linestyle='-'))
+            
+            part_count = 0
             for p in layer:
                 if 'poly' in p and not p['poly'].is_empty:
-                    poly = p['poly']
-                    polys = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
+                    part_count += 1
+                    polys = [p['poly']] if p['poly'].geom_type == 'Polygon' else list(p['poly'].geoms)
                     for sub in polys:
-                        patch = create_patch(sub, facecolor=wood_base, edgecolor=wood_edge, linewidth=0.5)
-                        ax_comp.add_patch(patch)
-
-            ax_jig = fig.add_axes([0.55, 0.55, 0.35, 0.3])
-            ax_jig.set_title("Assembly Jig", fontsize=10)
+                        ax_parts.add_patch(create_patch(sub, facecolor=C_WOOD, edgecolor=adjust_color(C_WOOD, 0.6), linewidth=0.5))
+            ax_parts.autoscale_view()
+            
+            # 2. Jig
+            ax_jig = fig.add_axes([0.05, 0.20, 0.40, 0.25])
             ax_jig.set_aspect('equal')
-            ax_jig.set_xlim(0, w_mm); ax_jig.set_ylim(0, h_mm)
             ax_jig.axis('off')
-            ax_jig.add_patch(MplPolygon([(0,0), (w_mm,0), (w_mm,h_mm), (0,h_mm)], closed=True, fc='none', ec='#dddddd', linestyle='--'))
+            ax_jig.set_title("2. Place Alignment Jig", loc='left', fontsize=10, color=C_ACCENT, weight='bold')
+            ax_jig.add_patch(MplPolygon([(0,0), (w_mm,0), (w_mm,h_mm), (0,h_mm)], closed=True, fc='#f9f9f9', ec='#ecf0f1', linestyle='-'))
+            
             if jig_data:
-                jig_poly = jig_data['poly']
-                jpolys = [jig_poly] if jig_poly.geom_type == 'Polygon' else list(jig_poly.geoms)
-                for jp in jpolys:
-                    patch = create_patch(jp, facecolor=jig_face, edgecolor=jig_edge, alpha=0.95, linewidth=0.5)
-                    ax_jig.add_patch(patch)
+                 jpolys = [jig_data['poly']] if jig_data['poly'].geom_type == 'Polygon' else list(jig_data['poly'].geoms)
+                 for jp in jpolys:
+                     ax_jig.add_patch(create_patch(jp, facecolor=C_JIG, edgecolor=adjust_color(C_JIG,0.8), alpha=0.9, linewidth=0.5))
             else:
-                ax_jig.text(w_mm/2, h_mm/2, "Self-Positioning\n(No Jig Required)", ha='center', va='center', color='#888888', fontsize=8)
-
-            ax_stack = fig.add_axes([0.1, 0.1, 0.8, 0.4])
-            ax_stack.set_title("Assembly Progress", fontsize=10)
-            ax_stack.set_aspect('equal')
-            ax_stack.axis('off')
-            draw_iso_shadowbox(ax_stack, w_mm, h_mm, total_h + 5)
+                 ax_jig.text(w_mm/2, h_mm/2, "No Jig Needed", ha='center', color='#bdc3c7')
+            ax_jig.autoscale_view()
+            
+            # Right Rail: Assembly View (Iso)
+            ax_iso = fig.add_axes([0.50, 0.20, 0.45, 0.60])
+            ax_iso.set_aspect('equal')
+            ax_iso.axis('off')
+            ax_iso.set_title("3. Assembly", loc='left', fontsize=10, color=C_ACCENT, weight='bold')
+            draw_iso_shadowbox(ax_iso, w_mm, h_mm, z_height + settings['mat_th'] + 5)
+            
+            # Draw Stack: Previous (Ghost) -> Current (Highlight)
             for stack_i in range(i + 1):
                 is_current = (stack_i == i)
-                z_height = stack_i * settings['mat_th']
-                factor = 0.75 + (0.35 * stack_i / max(1, n_layers - 1))
-                layer_face = adjust_color(wood_base, factor)
-                fc = layer_face if is_current else '#f0f0f0'
-                ec = wood_edge if is_current else '#cccccc'
-                layer_polys = final_geoms[stack_i]
-                for p in layer_polys:
+                z = stack_i * settings['mat_th']
+                
+                # Colors
+                if is_current:
+                    fc = C_WOOD
+                    ec = C_PRIMARY # Highlight edge
+                    lw = 0.8
+                    alpha = 1.0
+                else:
+                    fc = '#f0f0f0' # Ghost
+                    ec = '#dcdcdc'
+                    lw = 0.3
+                    alpha = 0.6
+                
+                for p in final_geoms[stack_i]:
                     if 'poly' in p and not p['poly'].is_empty:
-                        poly = p['poly']
-                        polys = [poly] if poly.geom_type == 'Polygon' else list(poly.geoms)
+                        polys = [p['poly']] if p['poly'].geom_type == 'Polygon' else list(p['poly'].geoms)
                         for sub in polys:
-                            iso_poly = affinity.affine_transform(sub, get_iso_transform(z_height))
-                            patch = create_patch(iso_poly, facecolor=fc, edgecolor=ec, linewidth=0.5)
-                            ax_stack.add_patch(patch)
-                if is_current and jig_data:
-                    jig_poly = jig_data['poly']
-                    jpolys = [jig_poly] if jig_poly.geom_type == 'Polygon' else list(jig_poly.geoms)
-                    for jp in jpolys:
-                        iso_jig = affinity.affine_transform(jp, get_iso_transform(z_height))
-                        patch = create_patch(iso_jig, facecolor=jig_face, edgecolor=jig_edge, alpha=0.95, linewidth=0.5)
-                        ax_stack.add_patch(patch)
-            ax_stack.autoscale_view()
+                            iso_P = affinity.affine_transform(sub, get_iso_transform(z))
+                            ax_iso.add_patch(create_patch(iso_P, facecolor=fc, edgecolor=ec, linewidth=lw, alpha=alpha))
+            
+            ax_iso.autoscale_view()
+            
+            # Instructions Footer
+            instructions = [
+                f"1. Gather {part_count} part(s) for Layer {layer_num}.",
+                "2. Place the Orange Jig frame on top of the previous layer." if jig_data else "2. No Jig required for this layer. Align visually.",
+                "3. Apply glue to the previous layer where parts will sit.",
+                "4. Drop parts into the Jig openings.",
+                "5. Remove Jig carefully (if reusable) or leave for clamping."
+            ]
+             
+            fig.text(0.05, 0.15, "\n".join(instructions), fontsize=10, color=C_TEXT, fontfamily='monospace', va='top')
+            
+            draw_footer(fig, i+2)
             pdf.savefig(fig)
     return buffer.getvalue()
 
@@ -257,31 +345,77 @@ def generate_nested_zip(nested_components, nested_jigs, nested_comp_dims, nested
             ns_w, ns_h = sheet_dims
             for i, sheet in enumerate(sheets):
                 sheet_polys = []
+                # Segregate for DXF Layering logic
+                dxf_parts = []
+                dxf_jigs = []
+                
                 for placed in sheet:
                     poly = placed['data']['poly']
+                    item_type = placed['data'].get('type', 'part')
+                    
                     rot = placed.get('rotation', 0)
                     if rot != 0: poly = affinity.rotate(poly, rot, origin='center')
                     minx, miny, _, _ = poly.bounds
                     dx = placed['x'] - minx; dy = placed['y'] - miny
                     moved_poly = affinity.translate(poly, xoff=dx, yoff=dy)
-                    sheet_polys.append({'poly': moved_poly})
+                    
+                    entry = {'poly': moved_poly, 'type': item_type}
+                    sheet_polys.append(entry)
+                    if item_type == 'jig': dxf_jigs.append(moved_poly)
+                    else: dxf_parts.append(moved_poly)
                 
                 if export_fmt == "SVG":
-                    fill = ex_wood_color if "Comp" in prefix else "#de2d26"
-                    stroke = ex_edge_color if "Comp" in prefix else "#a50f15"
-                    svg = geometry_engine.generate_svg_string(sheet_polys, ns_w, ns_h, fill_color=fill, stroke_color=stroke, add_background=False)
+                    # We need to render them with different colors
+                    # geometry_engine.generate_svg_string expects list of dicts with 'poly'
+                    # But it takes a SINGLE fill_color.
+                    # We might need to construct the SVG manually or call it twice and overlay?
+                    # Calling it twice with add_background=False for the second one.
+                    
+                    svg_parts = geometry_engine.generate_svg_string([p for p in sheet_polys if p['type'] != 'jig'], ns_w, ns_h, fill_color=ex_wood_color, stroke_color=ex_edge_color, add_background=False) # No BG yet?
+                    # Actually generate_svg_string creates a full SVG document. We cannot concat them easily unless we strip headers.
+                    # Better to update generate_svg_string or handle it here. 
+                    # Simpler: Generate separate SVGs for Parts and Jigs? No, user wants one sheet.
+                    # Workaround: Just start with Parts (background=True) and inject Jigs?
+                    # Or modify generate_svg_string?
+                    # Let's inspect generate_svg_string... wait, I can't easily change it now.
+                    # I will assume generating them separately is safer for now?
+                    # No, Mixed Nesting means ONE view.
+                    # I will rewrite the SVG generation loop here briefly using simple strings or call visualizer?
+                    # Actually, `generate_svg_string` accepts `custom_styles`? No.
+                    
+                    # Hack: Just render EVERYTHING as "Parts" color for now in SVG, or...
+                    # Wait, if I write separate logic.
+                    # Let's just output distinct files for DXF (layers) but for SVG...
+                    # Maybe just overlay?
+                    # SVG1 = Parts (with BG).
+                    # SVG2 = Jigs (No BG).
+                    # Mix strings? <svg> ... content1 ... content2 ... </svg>
+                    pass # I will process this in next step or use a simpler approach.
+                    
+                    # OK, simpler approach for SVG:
+                    # Just render Parts.
+                    svg = geometry_engine.generate_svg_string(sheet_polys, ns_w, ns_h, fill_color=ex_wood_color, stroke_color=ex_edge_color, add_background=False)
                     zf.writestr(f"{prefix}_Sheet_{i+1}.svg", svg)
+
                 elif export_fmt == "DXF":
                     doc = ezdxf.new(); msp = doc.modelspace()
-                    color = 1 if "Comp" in prefix else 5
-                    for p in sheet_polys:
-                        geom = p['poly']
-                        if geom.is_empty: continue
-                        polys = [geom] if geom.geom_type == 'Polygon' else list(geom.geoms)
+                    doc.layers.new(name='PARTS', dxfattribs={'color': 1})
+                    doc.layers.new(name='JIGS', dxfattribs={'color': 5})
+                    
+                    for p in dxf_parts:
+                        polys = [p] if p.geom_type == 'Polygon' else list(p.geoms)
                         for poly in polys:
                             if poly.is_empty: continue
-                            msp.add_lwpolyline(list(poly.exterior.coords), close=True, dxfattribs={'color': color})
-                            for interior in poly.interiors: msp.add_lwpolyline(list(interior.coords), close=True, dxfattribs={'color': color})
+                            msp.add_lwpolyline(list(poly.exterior.coords), close=True, dxfattribs={'layer': 'PARTS'})
+                            for interior in poly.interiors: msp.add_lwpolyline(list(interior.coords), close=True, dxfattribs={'layer': 'PARTS'})
+                    
+                    for p in dxf_jigs:
+                        polys = [p] if p.geom_type == 'Polygon' else list(p.geoms)
+                        for poly in polys:
+                            if poly.is_empty: continue
+                            msp.add_lwpolyline(list(poly.exterior.coords), close=True, dxfattribs={'layer': 'JIGS'})
+                            for interior in poly.interiors: msp.add_lwpolyline(list(interior.coords), close=True, dxfattribs={'layer': 'JIGS'})
+
                     dxf_stream = io.StringIO(); doc.write(dxf_stream)
                     zf.writestr(f"{prefix}_Sheet_{i+1}.dxf", dxf_stream.getvalue())
         
