@@ -28,7 +28,13 @@ API_KEY = data_loader.load_api_key()
 
 # --- STATE INITIALIZATION ---
 app_state.initialize_session_state()
-if 'user_mode' not in st.session_state: st.session_state.user_mode = 'creator'
+
+if 'user_mode' not in st.session_state: 
+    # Auto-Detect Environment
+    if hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web":
+        st.session_state.user_mode = 'creator'
+    else:
+        st.session_state.user_mode = 'maker'
 if 'admin_pwd' not in st.session_state: st.session_state.admin_pwd = ""
 
 app_state.restore_autosave()
