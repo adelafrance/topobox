@@ -11,7 +11,10 @@ def initialize_session_state():
         'box_w': 190.0, 'box_h': 190.0, 'box_d': 30.0, 'mat_th': 2.0, 'blur': 1.0,
         'min_area': 10.0, 'min_feature_width': 3.0, 'frame_mode': "None", 'frame_width': 4.0,
         'frame_sides': {'top': True, 'bottom': True, 'left': True, 'right': True},
-        'use_dowels': True, 'dowel_diam': 3.0, 'num_dowels': 2,
+        # --- ARCHIVED FEATURE: DOWELS ---
+        # Dowels are explicitly SUPPRESSED. Do not enable. 
+        # Future confusion avoidance: "There should absolutely be no dowels."
+        'use_dowels': False, 'dowel_diam': 3.0, 'num_dowels': 2,
         'layer_idx': 1, 'is_new_run': True, 'camera_snap_design': None, 'camera_snap_preview': None,
         'island_decisions': {}, 'problem_decisions': {}, 'manual_problems': {}, 'merge_group_names': {}, 
         'elevation_data': None, 'proj_name': "MyMountain_v1",

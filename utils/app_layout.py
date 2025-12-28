@@ -64,14 +64,13 @@ def render_sidebar(api_key, process_callback):
     is_maker = st.session_state.get('user_mode') == 'maker'
     
     with st.sidebar:
-        if not is_maker:
-            with st.expander("❓ How to Use", expanded=False):
-                st.markdown("""
-                **1. Locate:** Use the **📍** button or enter coordinates to find your mountain.
-                **2. Size:** Set the **Map Width** (how much terrain to capture) and **Box Dimensions** (your physical wood size).
-                **3. Preview:** Click **Generate Preview** to see the 3D result.
-                **4. Save:** Download the `.json` file and send it to your maker!
-                """)
+        with st.expander("❓ How to Use", expanded=False):
+            st.markdown("""
+            1. **Locate:** Use the **📍** button or enter coordinates to find your mountain.
+            2. **Size:** Set the **Map Width** (terrain size) and **Box Dimensions** (wood size).
+            3. **Preview:** Click **Generate Preview** to see the 3D result.
+            4. **Save:** Download the `.json` file and send it to your maker!
+            """)
         
         with st.expander("📂 Project", expanded=True):
             # Detect Deployment Environment
