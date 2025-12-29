@@ -9,6 +9,34 @@ def render_home():
     st.title("🏔️ TopoBox")
     st.caption("Advanced Topographic Model Generator")
     
+    # Maker "Stop" Button (Top Right)
+    if st.session_state.get('user_mode') == 'maker':
+        # Absolute positioning hack or just columns? Columns is safer.
+        # We want the title to be left, and stop button to be right.
+        # But st.title takes a whole line usually.
+        # Let's use a sidebar or just place it below title? 
+        # Actually, let's inject it into a column layout at the top.
+        pass # We'll do it below.
+
+    # Quit Confirmation (Home Screen Version)
+    import signal
+    if st.session_state.get('quit_home_visible', False):
+         with st.container(border=True):
+            st.warning("Are you sure you want to quit?")
+            def do_quit(): 
+                os.kill(os.getpid(), signal.SIGTERM)
+            def do_cancel(): 
+                st.session_state.quit_home_visible = False
+            
+            b1, b2 = st.columns(2)
+            b1.button("🏃 Quit App", on_click=do_quit, type="primary", use_container_width=True)
+            b2.button("↩️ Cancel", on_click=do_cancel, use_container_width=True)
+            
+    if st.session_state.get('user_mode') == 'maker':
+         if st.button("❌ Stop App", key="home_stop"):
+             st.session_state.quit_home_visible = True
+             st.rerun()
+
     st.divider()
     
     # Three main entry points
