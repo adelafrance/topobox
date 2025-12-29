@@ -98,8 +98,8 @@ def render_sidebar(api_key, process_callback):
                     except Exception as e:
                         st.error(f"Invalid JSON: {e}")
             
-            # Creator Uploader First
-            if not is_maker and is_web:
+            # Creator Uploader (Web & Local)
+            if not is_maker:
                  creator_upload = st.file_uploader("📂 Load Project to Resume", type=["json"], key="creator_uploader")
                  if creator_upload is not None:
                     import json
@@ -165,11 +165,18 @@ def render_sidebar(api_key, process_callback):
                     json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
                     # Use dynamic keys to ensure button redraws if name changes
                     st.download_button("💾 Save Project (Download)", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True, help="Download your progress to resume later.", key=f"dl_save_{safe_name}")
-                    st.download_button("📤 Submit Design (Final)", data=json_str, file_name=f"{safe_name}_SUBMISSION.json", mime="application/json", type="primary", use_container_width=True, help="Download the final design file to email to the Maker.", key=f"dl_submit_{safe_name}")
+                    
+                    # Real Cloud Submission
+                    if st.button("📤 Submit Design (Cloud)", type="primary", use_container_width=True, key=f"btn_sub_{safe_name}"):
+                         with st.spinner("Uploading to Maker's Cloud..."):
+                             fname = project_manager.submit_design(st.session_state.proj_name, st.session_state)
+                             st.toast(f"Design Submitted!", icon="✅")
+                             st.success(f"Submitted to Cloud as '{fname}'!")
+                             st.info("The Maker has been notified (file is in Drive).")
                 else:
                     if st.button("📤 Submit Design", type="primary", use_container_width=True):
                         fname = project_manager.submit_design(st.session_state.proj_name, st.session_state)
-                        st.balloons()
+                        st.toast(f"Design Submitted!", icon="✅")
                         st.success(f"Design Submitted to '{fname}'!")
                         st.info("The Maker can now open this directly from their dashboard.")
 
