@@ -84,8 +84,10 @@ def render_dashboard():
     # Sort by Date (descending) ideally, but string date is unreliable.
     # Let's trust string sort or file mtime in future.
     
+
     # Headers
-    c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 0.5])
+    # Adjusted columns to give more room for Action/Delete
+    c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.2, 1.2, 1, 1.1])
     c1.markdown("**Project**")
     c2.markdown("**User**")
     c3.markdown("**Date**")
@@ -97,7 +99,7 @@ def render_dashboard():
     STATS_OPTIONS = ["New", "Open", "Completed", "Archived"]
     
     for i, row in df.iterrows():
-        c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 0.5])
+        c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.2, 1.2, 1, 1.1])
         proj_name = row['raw_name']
         
         with c1:
@@ -107,8 +109,11 @@ def render_dashboard():
         
         with c2:
             st.write(f"**{row['User']}**")
+            # Truncate email if too long
             if row['Email'] != "-":
-                st.caption(row['Email'])
+                e = row['Email']
+                if len(e) > 15: e = e[:12] + "..."
+                st.caption(e)
                 
         with c3:
             st.write(row['Date'])
@@ -134,6 +139,9 @@ def render_dashboard():
                 if sub_c1.button("✅", key=f"yes_{proj_name}", help="Confirm Delete"):
                     _delete_submission(proj_name)
                     del st.session_state[f"confirm_delete_{proj_name}"]
+                    st.cache_data.clear() # Force clear any cached data
+                    import time
+                    time.sleep(0.2) # Ensure file system sync
                     st.rerun()
                 if sub_c2.button("❌", key=f"no_{proj_name}", help="Cancel"):
                     del st.session_state[f"confirm_delete_{proj_name}"]
