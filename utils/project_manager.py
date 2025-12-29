@@ -93,22 +93,23 @@ def save_project(name, state):
 
 def delete_submission(filename):
     """Deletes a submission from GitHub Repo AND Local Disk."""
+    errors = []
+    
     # 1. Remote Delete
     if st.secrets.get("github"):
         err = github_storage.delete_file(filename, message=f"Deleted {filename}")
         if err:
-            return err
+            errors.append(f"Remote: {err}")
             
-    # 2. Local Delete
+    # 2. Local Delete (ALWAYS RUN)
     filepath = os.path.join(SUBMISSIONS_DIR, filename)
-    if os.path.exists(filepath):
-        os.remove(filepath)
-    else:
-        # If it wasn't local but was remote (unlikely if synced), return warning?
-        # Nah, if it's gone, it's gone.
-        pass
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+    except Exception as e:
+        errors.append(f"Local: {e}")
         
-    return None
+    return "; ".join(errors) if errors else None
 
 def _prepare_save_data(name, state):
     safe_name = "".join(c for c in name if c.isalnum() or c in (' ', '_', '-')).rstrip()
