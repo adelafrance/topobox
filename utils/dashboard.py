@@ -51,6 +51,7 @@ def render_dashboard():
         time_str = "-"
         note = ""
         dims = "-"
+        status = "New"
         
         if json_data:
             # Meta
@@ -59,7 +60,7 @@ def render_dashboard():
             email = info.get('email') or "-"
             time_str = info.get('timestamp', '-').strip()
             note = info.get('comments', '')
-            status = info.get('status', 'New') # Default to New
+            status = info.get('status', 'New') 
             
             # Dims
             box = json_data.get('box', {})
