@@ -64,8 +64,11 @@ def render_home():
     
     # Recent Status / Tips (Optional)
     with st.expander("ℹ️  Quick Tips", expanded=False):
-        st.markdown("""
+        tips = """
         - **New Project**: Starts with default Switzerland coordinates.
         - **Resume**: Loads `.json` files from your `projects/` folder.
-        - **Dashboard**: Checks the Cloud Database for team submissions.
-        """)
+        """
+        if st.session_state.get('user_mode') == 'maker':
+            tips += "- **Dashboard**: Checks the Cloud Database for team submissions."
+        
+        st.markdown(tips)
