@@ -66,3 +66,51 @@ def push_json(filename, data, message="New Submission"):
             
     except Exception as e:
         return f"❌ Connection Error during upload: {e}"
+
+def delete_file(filename, message="Deleted Submission"):
+    """
+    Deletes a file from the 'submissions/' directory in the repo.
+    """
+    config = get_config()
+    if not config: return "❌ Secrets missing."
+    
+    token = config.get("token")
+    owner = config.get("owner")
+    repo = config.get("repo")
+    
+    path = f"submissions/{filename}"
+    url = f"https://api.github.com/repos/{owner}/{repo}/contents/{path}"
+    
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    
+    # 1. Get SHA (Required for Delete)
+    sha = None
+    try:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            sha = resp.json().get("sha")
+        elif resp.status_code == 404:
+            return None # Already gone
+        else:
+            return f"❌ Check Failed: {resp.status_code}"
+    except Exception as e:
+        return f"❌ Connection Error: {e}"
+        
+    # 2. DELETE
+    payload = {
+        "message": message,
+        "sha": sha,
+        "branch": "main"
+    }
+    
+    try:
+        resp = requests.delete(url, headers=headers, json=payload, timeout=20)
+        if resp.status_code in [200, 204]:
+            return None
+        else:
+            return f"❌ Delete Failed {resp.status_code}: {resp.text}"
+    except Exception as e:
+        return f"❌ Exception: {e}"

@@ -59,6 +59,7 @@ def render_dashboard():
             email = info.get('email') or "-"
             time_str = info.get('timestamp', '-').strip()
             note = info.get('comments', '')
+            status = info.get('status', 'New') # Default to New
             
             # Dims
             box = json_data.get('box', {})
@@ -73,6 +74,7 @@ def render_dashboard():
             "Dimensions": dims,
             "Email": email,
             "Note": note,
+            "Status": status,
             "raw_name": f # hidden key
         })
         
@@ -82,20 +84,19 @@ def render_dashboard():
     # Let's trust string sort or file mtime in future.
     
     # Headers
-    c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 1])
+    c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 0.5])
     c1.markdown("**Project**")
-    # c2: Date
-    c2.markdown("**Date**")
-    # c3: User
-    c3.markdown("**User**")
-    # c4: Dims
-    c4.markdown("**Size**")
-    # c5: Action
+    c2.markdown("**User**")
+    c3.markdown("**Date**")
+    c4.markdown("**Status**")
     c5.markdown("**Action**")
+    c6.markdown("**Del**")
     st.divider()
     
-    for _, row in df.iterrows():
-        c1, c2, c3, c4, c5 = st.columns([2, 2, 2, 2, 1])
+    STATS_OPTIONS = ["New", "Open", "Completed", "Archived"]
+    
+    for i, row in df.iterrows():
+        c1, c2, c3, c4, c5, c6 = st.columns([2, 1.5, 1.5, 1.5, 1.5, 0.5])
         proj_name = row['raw_name']
         
         with c1:
@@ -104,18 +105,58 @@ def render_dashboard():
                 st.caption(f"📝 {row['Note']}")
         
         with c2:
-            st.write(row['Date'])
-            
-        with c3:
             st.write(f"**{row['User']}**")
             if row['Email'] != "-":
                 st.caption(row['Email'])
                 
-        with c4:
-            st.write(row['Dimensions'])
+        with c3:
+            st.write(row['Date'])
             
+        with c4:
+            # Status Dropdown
+            current_status = row['Status']
+            idx = 0
+            if current_status in STATS_OPTIONS: idx = STATS_OPTIONS.index(current_status)
+            
+            new_status = st.selectbox("Status", STATS_OPTIONS, index=idx, key=f"status_{proj_name}", label_visibility="collapsed")
+            if new_status != current_status:
+                _update_status(proj_name, new_status)
+                st.rerun()
+
         with c5:
             st.button("⬇️ Load", key=f"load_{proj_name}", on_click=_load_and_switch, args=(proj_name,), use_container_width=True)
+
+        with c6:
+            if st.button("🗑️", key=f"del_{proj_name}", help="Delete Submission (Remote & Local)"):
+                _delete_submission(proj_name)
+                st.rerun()
+
+def _update_status(filename, new_status):
+    """Updates the status in the local JSON file."""
+    try:
+        data = project_manager.load_submission(filename)
+        if data:
+            if 'submission_info' not in data: data['submission_info'] = {}
+            data['submission_info']['status'] = new_status
+            
+            # Save Local Only (Fastest for tracking)
+            # If we wanted to sync status back to Creator, we'd enable push here.
+            import os, json
+            filepath = os.path.join(project_manager.SUBMISSIONS_DIR, filename)
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=4)
+            st.toast(f"Marked as {new_status}")
+    except Exception as e:
+        st.error(f"Status Update Failed: {e}")
+
+def _delete_submission(filename):
+    """Deletes the submission."""
+    with st.spinner("Deleting from Cloud..."):
+        err = project_manager.delete_submission(filename)
+        if err:
+            st.error(f"Delete Failed: {err}")
+        else:
+            st.toast("Deleted!")
 
 def _load_and_switch(proj_name):
     """Loads the project and switches back to the Studio tab."""
