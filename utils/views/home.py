@@ -52,12 +52,13 @@ def render_home():
             except Exception as e:
                 st.error(f"Error loading project: {e}")
 
-    with c3:
-        st.container(border=True).markdown("#### 👷 Maker Dashboard")
-        st.write("View and print submitted designs.")
-        if st.button("Open Dashboard", use_container_width=True):
-            st.session_state.current_view = "Dashboard"
-            st.rerun()
+    if st.session_state.get('user_mode') == 'maker':
+        with c3:
+            st.container(border=True).markdown("#### 👷 Maker Dashboard")
+            st.write("View and print submitted designs.")
+            if st.button("Open Dashboard", use_container_width=True):
+                st.session_state.current_view = "Dashboard"
+                st.rerun()
 
     st.divider()
     
