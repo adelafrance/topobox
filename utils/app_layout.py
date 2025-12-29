@@ -163,8 +163,9 @@ def render_sidebar(api_key, process_callback):
                 if is_web:
                     # CREATOR WEB: Load Logic moved to top
                     json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
-                    st.download_button("💾 Save Project (Download)", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True, help="Download your progress to resume later.")
-                    st.download_button("📤 Submit Design (Final)", data=json_str, file_name=f"{safe_name}_SUBMISSION.json", mime="application/json", type="primary", use_container_width=True, help="Download the final design file to email to the Maker.")
+                    # Use dynamic keys to ensure button redraws if name changes
+                    st.download_button("💾 Save Project (Download)", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True, help="Download your progress to resume later.", key=f"dl_save_{safe_name}")
+                    st.download_button("📤 Submit Design (Final)", data=json_str, file_name=f"{safe_name}_SUBMISSION.json", mime="application/json", type="primary", use_container_width=True, help="Download the final design file to email to the Maker.", key=f"dl_submit_{safe_name}")
                 else:
                     if st.button("📤 Submit Design", type="primary", use_container_width=True):
                         fname = project_manager.submit_design(st.session_state.proj_name, st.session_state)
