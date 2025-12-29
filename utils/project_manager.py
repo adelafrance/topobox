@@ -91,23 +91,44 @@ def save_project(name, state):
         json.dump(save_data, f, indent=4)
     return filepath
 
-def delete_submission(filename):
-    """Deletes a submission from GitHub Repo AND Local Disk."""
+def delete_submission(name_or_file):
+    """Deletes a submission from GitHub Repo AND Local Disk. Auto-resolves extension."""
     errors = []
+    
+    # Resolve Filename
+    # Try exact, then .json, then _SUBMISSION.json
+    candidates = [name_or_file, f"{name_or_file}.json", f"{name_or_file}_SUBMISSION.json"]
+    local_target = None
+    
+    # Find Local Target
+    for c in candidates:
+        path = os.path.join(SUBMISSIONS_DIR, c)
+        if os.path.exists(path):
+            local_target = c
+            break
+            
+    # If not found locally, default to appending .json for remote attempt? 
+    # Or just use the input if it looks like a file?
+    target_filename = local_target if local_target else candidates[2] # Guess _SUBMISSION.json preferrably
     
     # 1. Remote Delete
     if st.secrets.get("github"):
-        err = github_storage.delete_file(filename, message=f"Deleted {filename}")
+        # We might need to try multiple if we aren't sure, but usually local matches remote.
+        err = github_storage.delete_file(target_filename, message=f"Deleted {target_filename}")
         if err:
             errors.append(f"Remote: {err}")
             
     # 2. Local Delete (ALWAYS RUN)
-    filepath = os.path.join(SUBMISSIONS_DIR, filename)
-    try:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-    except Exception as e:
-        errors.append(f"Local: {e}")
+    if local_target:
+        filepath = os.path.join(SUBMISSIONS_DIR, local_target)
+        try:
+             os.remove(filepath)
+        except Exception as e:
+            errors.append(f"Local: {e}")
+    else:
+        # If not found locally, we can't delete it.
+        # But if it was a ghost entry, maybe we should just say success?
+        pass # It's gone
         
     return "; ".join(errors) if errors else None
 

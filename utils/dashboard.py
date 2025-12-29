@@ -93,7 +93,7 @@ def render_dashboard():
     c3.markdown("**Date**")
     c4.markdown("**Status**")
     c5.markdown("**Action**")
-    c6.markdown("**Del**")
+    c6.markdown("**Delete**")
     st.divider()
     
     STATS_OPTIONS = ["New", "Open", "Completed", "Archived"]
