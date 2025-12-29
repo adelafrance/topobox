@@ -128,9 +128,20 @@ def render_dashboard():
             st.button("⬇️ Load", key=f"load_{proj_name}", on_click=_load_and_switch, args=(proj_name,), use_container_width=True)
 
         with c6:
-            if st.button("🗑️", key=f"del_{proj_name}", help="Delete Submission (Remote & Local)"):
-                _delete_submission(proj_name)
-                st.rerun()
+            # Delete Confirmation UI
+            if st.session_state.get(f"confirm_delete_{proj_name}"):
+                sub_c1, sub_c2 = st.columns(2)
+                if sub_c1.button("✅", key=f"yes_{proj_name}", help="Confirm Delete"):
+                    _delete_submission(proj_name)
+                    del st.session_state[f"confirm_delete_{proj_name}"]
+                    st.rerun()
+                if sub_c2.button("❌", key=f"no_{proj_name}", help="Cancel"):
+                    del st.session_state[f"confirm_delete_{proj_name}"]
+                    st.rerun()
+            else:
+                if st.button("🗑️", key=f"del_{proj_name}", help="Delete Submission"):
+                    st.session_state[f"confirm_delete_{proj_name}"] = True
+                    st.rerun()
 
 def _update_status(filename, new_status):
     """Updates the status in the local JSON file."""
