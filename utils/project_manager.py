@@ -3,7 +3,7 @@
 import json
 import os
 import streamlit as st
-from utils import drive
+from utils import github_storage
 
 PROJECTS_DIR = "projects"
 SUBMISSIONS_DIR = "submissions"
@@ -16,43 +16,18 @@ def list_projects():
     """Returns a sorted list of available project names."""
     return sorted([f.replace('.json', '') for f in os.listdir(PROJECTS_DIR) if f.endswith('.json')])
 
-DB_FILENAME = "submissions_db.json"
-
-@st.cache_data(ttl=60, show_spinner="Syncing with Cloud... ☁️")
-def _fetch_db():
-    """Downloads the master DB file content."""
-    db_id = drive.get_file_id_by_name(DB_FILENAME)
-    if not db_id: return None, []
-    
-    content = drive.download_file(db_id)
-    if not content: return db_id, []
-    
-    try:
-        return db_id, json.loads(content)
-    except:
-        return db_id, []
-
 def list_submissions(load_from_drive=True):
-    """Returns a list of submissions from the Cloud DB + Local Files."""
+    """Returns a list of submissions from the Local Folder (Synced via Git)."""
+    # Note: 'load_from_drive' arg is kept for compatibility but ignored.
+    # The 'Cloud' is now the Git Repo, which the user must 'Pull' to see here.
     local_files = set()
     if os.path.exists(SUBMISSIONS_DIR):
-        local_files = set(f.replace('_SUBMISSION.json', '') for f in os.listdir(SUBMISSIONS_DIR) if f.endswith('_SUBMISSION.json'))
+        local_files = set(f.replace('.json', '') for f in os.listdir(SUBMISSIONS_DIR) if f.endswith('.json'))
     
-    cloud_names = set()
-    # Cloud DB
-    if load_from_drive:
-        try:
-            _, db_data = _fetch_db()
-            for entry in db_data:
-                if 'project_name' in entry:
-                    cloud_names.add(entry['project_name'])
-        except Exception as e:
-            print(f"DB List Error: {e}")
-
-    return sorted(list(local_files | cloud_names))
+    return sorted(list(local_files))
 
 def submit_design(name, state, submission_info=None):
-    """Saves to Local and Appends to Cloud DB."""
+    """Saves to Local and Pushes to GitHub Repo."""
     safe_name, save_data = _prepare_save_data(name, state)
     
     # Inject Name explicitly so we can list it later
@@ -62,47 +37,36 @@ def submit_design(name, state, submission_info=None):
     if submission_info:
         save_data['submission_info'] = submission_info
         
+    filename = f"{safe_name}.json" # Cleaned up naming (no _SUBMISSION suffix needed if in folders, but let's keep it compatible?)
+    # actually, previous logic enforced _SUBMISSION.json. Let's keep that for consistency if we want.
+    # But wait, GitHub storage is generic. 
+    # Let's stick to the convention: {name}_SUBMISSION.json
     filename = f"{safe_name}_SUBMISSION.json"
     filepath = os.path.join(SUBMISSIONS_DIR, filename)
     
-    # Local Save (Backup)
-    with open(filepath, "w") as f:
-        json.dump(save_data, f, indent=4)
-        
-    # Cloud Append
-    upload_error = None
+    # Local Save (Backup / Maker Logic)
     try:
-        # Force fresh fetch
-        _fetch_db.clear()
-        db_id, db_data = _fetch_db()
-        if not db_id:
-             # Just warn, but don't crash
-             print("Database file 'submissions_db.json' not found in Cloud Folder.")
-             raise Exception("DB Not Found (Quota Bypass unavailable)")
-        
-        # Check if exists and update
-        updated = False
-        for i, entry in enumerate(db_data):
-            if entry.get('project_name') == safe_name:
-                db_data[i] = save_data # Overwrite
-                updated = True
-                break
-        if not updated:
-            db_data.append(save_data)
-            
-        # Save back
-        err = drive.update_file_content(db_id, json.dumps(db_data, indent=2))
-        if err: raise Exception(err)
-        
+        with open(filepath, "w") as f:
+            json.dump(save_data, f, indent=4)
     except Exception as e:
-        upload_error = str(e)
-        print(f"Cloud DB Error: {e}")
+        # If running on Cloud (read-only), this might fail or be transient. That's OK.
+        print(f"Local save warning: {e}")
+        
+    # Cloud Push (GitHub)
+    upload_error = None
+    if st.secrets.get("github"):
+        err = github_storage.push_json(filename, save_data, message=f"Submission: {safe_name}")
+        if err:
+            upload_error = err
+            print(f"GitHub Push Error: {err}")
+    else:
+        # If no secrets (e.g. Maker without internet?), just local is fine.
+        pass
         
     return filename, upload_error
 
 def load_submission(name):
-    """Loads from Local or Cloud DB."""
-    # Check local first
+    """Loads from Local Submissions Folder."""
     filename = f"{name}_SUBMISSION.json"
     filepath = os.path.join(SUBMISSIONS_DIR, filename)
     
@@ -110,15 +74,6 @@ def load_submission(name):
         with open(filepath, 'r') as f:
             return json.load(f)
             
-    # Check Cloud DB
-    try:
-        _, db_data = _fetch_db()
-        for entry in db_data:
-            if entry.get('project_name') == name:
-                return entry
-    except Exception as e:
-        print(f"Cloud Load Error: {e}")
-        
     return None
 
 

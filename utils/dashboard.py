@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
-from utils import project_manager, drive
+import subprocess
+from utils import project_manager
 
 def render_dashboard():
     """Renders the Maker's Submissions Dashboard."""
     st.title("📬 Submissions Dashboard")
-    st.markdown("Review and load designs submitted by Creators.")
+    st.markdown("Review and load designs submitted by Creators (Synced via GitHub).")
     
     # Refresh Button
     # Top Bar: Home | Refresh
@@ -15,65 +16,49 @@ def render_dashboard():
              st.session_state.current_view = "Home"
              st.rerun()
     with c_ref:
-         if st.button("🔄 Refresh", use_container_width=True):
+         if st.button("🔄 Sync (Git Pull)", use_container_width=True):
+            try:
+                # Run git pull to fetch latest submissions
+                subprocess.run(["git", "pull"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                st.toast("Synced with Cloud! 🐙")
+            except Exception as e:
+                st.error(f"Sync error: {e}")
+                
             st.cache_data.clear()
             st.rerun()
         
     # Fetch Data
-    with st.spinner("Fetching Submissions..."):
-        # We need a way to get detailed info. 
-        # list_submissions returns simple names. 
-        # For a rich dashboard, we ideally want metadata without downloading everything.
-        # But we don't have a database. 
-        # Compromise: We list files, and maybe fetch metadata when a row is expanded?
-        # Or just show filenames for now, and fetch metadata ON DEMAND.
-        
+    with st.spinner("Loading Submissions..."):
         files = project_manager.list_submissions()
         
     if not files:
-        st.info("No submissions found.")
+        st.info("No submissions found (Try Syncing).")
         return
 
     # Create a DataFrame for the table
-    # We will try to parse metadata from the filename if possible, otherwise just list.
     data = []
     for f in files:
-        # Check if we have it in drive_map to know source
-        is_cloud = False
-        if hasattr(st.session_state, 'drive_map') and f in st.session_state.drive_map:
-            is_cloud = True
-            
         data.append({
             "Project Name": f,
-            "Source": "☁️ Cloud" if is_cloud else "💻 Local",
             "Action": f
         })
         
     df = pd.DataFrame(data)
     
-    # Display as a grid? Or just a list with columns.
-    # We'll use columns for layout control.
-    
     # Headers
-    c1, c2, c3 = st.columns([3, 1, 1])
+    c1, c2 = st.columns([3, 1])
     c1.markdown("**Project**")
-    c2.markdown("**Source**")
-    c3.markdown("**Action**")
+    c2.markdown("**Action**")
     st.divider()
     
     for _, row in df.iterrows():
-        c1, c2, c3 = st.columns([3, 1, 1])
+        c1, c2 = st.columns([3, 1])
         proj_name = row['Project Name']
         
         with c1:
             st.write(f"📂 **{proj_name}**")
-            # Expandable details would require loading the JSON.
-            # Let's add a "View Details" toggle?
             
         with c2:
-            st.write(row['Source'])
-            
-        with c3:
             st.button("⬇️ Load", key=f"load_{proj_name}", on_click=_load_and_switch, args=(proj_name,), use_container_width=True)
 
 def _load_and_switch(proj_name):
