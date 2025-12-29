@@ -50,12 +50,39 @@ def render_home():
         if st.button("Create Project", type="primary", use_container_width=True, disabled=not new_name):
             # Initialize New State
             st.session_state.proj_name = new_name
+            
             # Reset core vars to trigger defaults in engine
-            keys_to_reset = ['lat', 'lon', 'width_km', 'height_km', 'box_w', 'box_h', 'box_d']
+            # We do NOT run data_loader.get_user_location() here because IP-based location is often inaccurate.
+            # We rely on the user clicking "📍" in the sidebar for precise browser-based location.
+            
+            keys_to_reset = ['width_km', 'height_km', 'box_w', 'box_h', 'box_d', 'elevation_data']
             for k in keys_to_reset:
                 if k in st.session_state: del st.session_state[k]
                 
-            st.session_state.current_view = "Studio"
+            # Default Location (Switzerland) - User can update this via Sidebar
+            st.session_state.lat = 45.976
+            st.session_state.lon = 7.658
+            st.session_state.coords_input = "45.9760, 7.6580"
+            
+            # Set Default defaults
+            st.session_state.mat_th = 2.0
+            st.session_state.box_d = 30.0
+            
+            # Requested defaults
+            st.session_state.blur = 5.0
+            st.session_state.min_area = 100.0
+            st.session_state.min_feature_width = 3.0
+            st.session_state.fuse_gap = 1.0
+            
+            # Enable all Intelligent Automation
+            st.session_state.auto_bridge = True
+            st.session_state.auto_cleanup = True
+            st.session_state.auto_fuse = True
+            
+            # Do NOT trigger auto-run. User must configure first.
+            st.session_state.run_btn = False
+                
+            st.session_state.current_view = "3D Design"
             st.rerun()
             
     with c2:
@@ -73,7 +100,7 @@ def render_home():
                     # project_manager.apply_settings updates st.session_state in-place
                     project_manager.apply_settings(data)
                     st.session_state.proj_name = selected
-                    st.session_state.current_view = "Studio"
+                    st.session_state.current_view = "3D Design"
                     st.rerun()
                 else:
                     st.error("Failed to load project data.")
@@ -100,3 +127,23 @@ def render_home():
             tips += "- **Dashboard**: Checks the Cloud Database for team submissions."
         
         st.markdown(tips)
+
+    # Admin Access (Hidden Toggle) - Moved from Sidebar
+    st.markdown("---")
+    with st.expander("🔒 Admin Access"):
+        def check_admin():
+            pwd = st.session_state.admin_pwd
+            if pwd == "topomaker":
+                st.session_state.user_mode = 'maker'
+            elif pwd == "reset":
+                st.session_state.user_mode = 'creator'
+            st.session_state.admin_pwd = "" # Clear
+            
+        st.text_input("Password", type="password", key="admin_pwd", on_change=check_admin, help="Test Password: topomaker")
+        if st.session_state.get('user_mode') == 'maker':
+            st.caption("✅ Maker Mode Active")
+            
+            st.divider()
+            if st.button("Logout", key="home_logout"):
+                st.session_state.user_mode = 'creator'
+                st.rerun()

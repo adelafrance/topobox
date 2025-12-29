@@ -110,6 +110,9 @@ elif st.session_state.run_btn or st.session_state.elevation_data is not None:
         for k in ['island_decisions', 'merge_groups', 'merge_group_names', 'bridge_to_mainland_requests', 'manual_bridge_points', 'jig_modifications', 'problem_decisions', 'manual_problems']: st.session_state[k] = {}
         # Reset critical params baseline to prevent warning on this pass
         for p in ['blur', 'min_area', 'box_w', 'box_h']: st.session_state[f'last_{p}'] = st.session_state[p]
+        
+        # CRITICAL: Force Geometry Engine to re-run
+        if 'cached_final_geoms' in st.session_state: del st.session_state.cached_final_geoms
 
     # --- Intelligent State Persistence ---
     # Detect if critical parameters changed
@@ -147,6 +150,8 @@ elif st.session_state.run_btn or st.session_state.elevation_data is not None:
         raster_settings = {
             k: settings[k] for k in ['box_d', 'mat_th', 'blur', 'box_w', 'box_h', 'min_area'] if k in settings
         }
+        # DEBUG: Layer Logic
+
         raster_settings['code_version'] = CURRENT_CODE_VERSION
         
         # Fast Preview for Creator Mode to ensure snappy UI

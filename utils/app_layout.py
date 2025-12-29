@@ -166,7 +166,47 @@ def render_sidebar(api_key, process_callback):
                         st.session_state.lon = float(parts[1].strip())
                 except:
                     pass
-            
+
+            # --- Geolocation Logic (Must run BEFORE widget instantiation) ---
+            if st.session_state.get('getting_loc'):
+                with st.status("Requesting Location...", expanded=True) as status:
+                    st.write("Please 'Allow' browser permissions.")
+                    if st.button("Cancel", key="cancel_geo"):
+                        st.session_state.getting_loc = False
+                        st.rerun()
+                        
+                    # Run JS Geolocation
+                    js_code = """new Promise(resolve => {
+                        navigator.geolocation.getCurrentPosition(
+                            pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+                            err => resolve({error: err.message}),
+                            {enableHighAccuracy: true, timeout: 8000, maximumAge: 0}
+                        );
+                    })"""
+                    
+                    loc_data = st_javascript(js_code, key=st.session_state.get('geo_key', 'geo_init'))
+                    
+                    if loc_data and loc_data != 0:
+                        if isinstance(loc_data, dict) and 'error' in loc_data:
+                             status.write(f"Error: {loc_data['error']}")
+                             status.update(label="Failed", state="error")
+                             time.sleep(2)
+                             st.session_state.getting_loc = False
+                             st.rerun()
+                        elif isinstance(loc_data, dict) and 'lat' in loc_data:
+                            st.session_state.lat = loc_data['lat']
+                            st.session_state.lon = loc_data['lon']
+                            # Update state BEFORE widget renders
+                            st.session_state.coords_input = f"{loc_data['lat']:.4f}, {loc_data['lon']:.4f}"
+                            st.session_state.getting_loc = False
+                            status.write("Found!")
+                            status.update(label="Success", state="complete")
+                            st.rerun()
+                        else:
+                             # Wait / No Data yet
+                             pass
+            # ----------------------------------------------------------------
+
             c_txt, c_btn = st.columns([0.85, 0.15])
             with c_txt:
                 st.text_input("Lat/Lon", key="coords_input", on_change=lambda: _parse_coords(st.session_state.coords_input), help="Format: Lat, Lon", label_visibility="collapsed")
@@ -175,35 +215,7 @@ def render_sidebar(api_key, process_callback):
                     import time
                     st.session_state.getting_loc = True
                     st.session_state.geo_key = f"geo_{time.time()}"
-            
-            if st.session_state.get('getting_loc'):
-                st.info("Requesting precise location from browser... (Please 'Allow' permissions)")
-                # Run JS Geolocation
-                loc_data = st_javascript("""
-                    new Promise(resolve => {
-                        navigator.geolocation.getCurrentPosition(
-                            pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-                            err => resolve({error: err.message}),
-                            {enableHighAccuracy: true, timeout: 10000, maximumAge: 0}
-                        );
-                    })
-                """, key=st.session_state.get('geo_key', 'geo_init'))
-                
-                if loc_data:
-                    # Check for errors
-                    if isinstance(loc_data, dict) and 'error' in loc_data:
-                         st.error(f"Location Error: {loc_data['error']}")
-                         st.session_state.getting_loc = False
-                    elif isinstance(loc_data, dict) and 'lat' in loc_data:
-                        st.session_state.lat = loc_data['lat']
-                        st.session_state.lon = loc_data['lon']
-                        st.session_state.coords_input = f"{loc_data['lat']:.4f}, {loc_data['lon']:.4f}"
-                        st.session_state.getting_loc = False
-                        st.success("Precise location found!")
-                        st.rerun()
-                    else:
-                        # Unexpected format
-                        st.session_state.getting_loc = False
+                    st.rerun()
 
             st.caption(f"Current: {st.session_state.lat:.4f}, {st.session_state.lon:.4f}")
             
@@ -225,8 +237,8 @@ def render_sidebar(api_key, process_callback):
                      update_h_from_w()
 
             c1, c2 = st.columns(2)
-            c1.number_input("W (km)", step=0.5, key="width_km", on_change=update_h_from_w, min_value=1.0, help="Width of the real-world terrain to capture.")
-            c2.number_input("H (km)", step=0.5, key="height_km", on_change=update_w_from_h, min_value=1.0, help="Height of the real-world terrain to capture.")
+            c1.number_input("W (km)", step=0.5, key="width_km", on_change=update_h_from_w, min_value=1.0, max_value=25.0, help="Width of the real-world terrain to capture.")
+            c2.number_input("H (km)", step=0.5, key="height_km", on_change=update_w_from_h, min_value=1.0, max_value=25.0, help="Height of the real-world terrain to capture.")
             
             st.caption("Physical Box Dimensions:")
             c_b1, c_b2, c_b3 = st.columns(3)
@@ -268,32 +280,8 @@ def render_sidebar(api_key, process_callback):
                 if st.checkbox("Auto-Fuse Touching Parts", value=True, key="auto_fuse", help="Merges features that are essentially touching into single solid objects."):
                     st.number_input("Max Merge Gap (mm)", min_value=0.1, max_value=5.0, value=0.5, step=0.1, key="fuse_gap", help="Any parts closer than this distance will be fused together.")
             
-            st.divider()
-            
-            st.divider()
-            st.divider()
-        
+
         # Action Button
-        btn_label = "Generate Preview" if not is_maker else "Load/Process Data"
+        btn_label = "Generate Preview" if not is_maker else "Process / Update"
         if not api_key: st.error("No API Key")
         else: st.button(btn_label, type="primary", on_click=process_callback, use_container_width=True)
-
-        # Admin Access (Hidden Toggle)
-        st.markdown("---")
-        with st.expander("🔒 Admin Access"):
-            def check_admin():
-                pwd = st.session_state.admin_pwd
-                if pwd == "topomaker":
-                    st.session_state.user_mode = 'maker'
-                elif pwd == "reset":
-                    st.session_state.user_mode = 'creator'
-                st.session_state.admin_pwd = "" # Clear
-                
-            st.text_input("Password", type="password", key="admin_pwd", on_change=check_admin, help="Test Password: topomaker")
-            if is_maker:
-                st.caption("✅ Maker Mode Active")
-                
-                st.divider()
-                if st.button("Logout"):
-                    st.session_state.user_mode = 'creator'
-                    st.rerun()

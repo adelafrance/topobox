@@ -286,6 +286,23 @@ def apply_settings(data):
 
     # Reset non-persistent runtime state
     st.session_state['elevation_data'] = None
+    
+    # --- SYNC UI WIDGETS ---
+    # We must explicitly set the 'inputs' that feed the state, otherwise they will show defaults/stale values
+    # Lat/Lon Input String
+    st.session_state.coords_input = f"{st.session_state.lat:.4f}, {st.session_state.lon:.4f}"
+    
+    # Blur Slider/Input Sync
+    st.session_state.blur_slider = st.session_state.blur
+    st.session_state.blur_input = st.session_state.blur
+    
+    # --- TRIGGER AUTO-RUN ---
+    # Force the app to treat this as a "Go" signal
+    st.session_state.run_btn = True
+    st.session_state.is_new_run = True # Resets layer indexing
+    
+    # Versioning
+    st.session_state.code_version = "LOADED_STATE" # Force refresh check if needed
     st.session_state['is_new_run'] = True
     st.session_state['run_btn'] = True # Trigger a re-run
 
