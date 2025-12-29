@@ -25,7 +25,7 @@ def initialize_session_state():
         'show_3d_axes': False, 'item_to_delete': None, 'editing_manual_bridge': None,
         'show_original_islands': False, 'jig_modifications': {},
         'jig_anchor_thick': 6.0, 'jig_anchor_len': 25.0,
-        'current_view': "3D Design",
+        'current_view': "Home",
         'auto_cleanup': True, 'auto_bridge': True, 'auto_fuse': True, 'fuse_gap': 1.0
     }
     
@@ -46,8 +46,8 @@ def restore_autosave():
             with open(AUTOSAVE_FILE, 'rb') as f:
                 saved_state = pickle.load(f)
                 for k, v in saved_state.items():
-                    # Filter out button keys
-                    if not k.endswith(('_btn', '_btn_design', '_btn_island', '_btn_prev', '_btn_assembly')) and not k.startswith(('del_', 'island_view_', 'island_plot_', 'regen_', 'assembly_plot_')):
+                    # Filter out button keys AND current_view (Always start Home)
+                    if k != 'current_view' and not k.endswith(('_btn', '_btn_design', '_btn_island', '_btn_prev', '_btn_assembly')) and not k.startswith(('del_', 'island_view_', 'island_plot_', 'regen_', 'assembly_plot_')):
                         st.session_state[k] = v
             
             st.session_state.quit_confirmation_visible = False
@@ -60,7 +60,7 @@ def save_autosave():
     try:
         with open(AUTOSAVE_FILE, 'wb') as f:
             state_to_save = {k: v for k, v in st.session_state.items() 
-                             if not k.endswith(('_btn', '_btn_design', '_btn_island', '_btn_prev', '_btn_assembly')) and not k.startswith(('del_', 'island_view_', 'island_plot_', 'regen_', 'assembly_plot_'))}
+                             if k != 'current_view' and not k.endswith(('_btn', '_btn_design', '_btn_island', '_btn_prev', '_btn_assembly')) and not k.startswith(('del_', 'island_view_', 'island_plot_', 'regen_', 'assembly_plot_'))}
             pickle.dump(state_to_save, f)
     except Exception: pass
 

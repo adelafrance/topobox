@@ -34,7 +34,7 @@ def render_navigation():
         # Define Views based on Role
         if is_maker:
             views = ["3D Design", "Layer Tools", "Assembly Tools", "Preview", "Export"]
-            cols = st.columns(5, gap="small")
+            cols = st.columns(len(views), gap="small")
         else:
             views = ["3D Design", "Preview"]
             cols = st.columns(len(views), gap="small")
@@ -65,6 +65,11 @@ def render_sidebar(api_key, process_callback):
     is_maker = st.session_state.get('user_mode') == 'maker'
     
     with st.sidebar:
+        # NEW Home Button
+        if st.button("🏠 Home", use_container_width=True):
+            st.session_state.current_view = "Home"
+            st.rerun()
+            
         with st.expander("❓ How to Use", expanded=False):
             st.markdown("""
             1. **Locate:** Use the **📍** button or enter coordinates to find your mountain.
@@ -74,111 +79,79 @@ def render_sidebar(api_key, process_callback):
             """)
         
         with st.expander("📂 Project", expanded=True):
+            # Name Input 
+            st.text_input("Name", key="proj_name")
+
             # Detect Deployment Environment
             is_web = False
             try:
                 if hasattr(st, "secrets") and st.secrets.get("DEPLOYMENT_MODE") == "web":
                     is_web = True
             except Exception: pass
-            
-            # File Uploader First (to allow updating proj_name)
-            if is_maker and is_web:
-                uploaded_file = st.file_uploader("📂 Load Project", type=["json"], key="uploader")
-                if uploaded_file is not None:
-                    import json
-                    try:
-                        data = json.load(uploaded_file)
-                        # Auto-load on upload to avoid button confusion? 
-                        # Or use a button with a unique key?
-                        if st.button(f"📥 Confirm Load: {uploaded_file.name}", use_container_width=True):
-                            project_manager.apply_settings(data)
-                            st.session_state.proj_name = data.get('project_name', uploaded_file.name.replace('.json',''))
-                            st.toast(f"Loaded {uploaded_file.name}!", icon="📂")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Invalid JSON: {e}")
-            
-            # Creator Uploader (Web & Local)
-            if not is_maker:
-                 creator_upload = st.file_uploader("📂 Load Project to Resume", type=["json"], key="creator_uploader")
-                 if creator_upload is not None:
-                    import json
-                    try:
-                        data = json.load(creator_upload)
-                        if st.button(f"📥 Restore {creator_upload.name}", use_container_width=True):
-                            project_manager.apply_settings(data)
-                            st.session_state.proj_name = data.get('project_name', creator_upload.name.replace('.json',''))
-                            st.toast(f"Restored {creator_upload.name}!", icon="📂")
-                            st.rerun()
-                    except Exception as e:
-                        st.error(f"Invalid Project File: {e}")
-            
-            # Name Input (Now safe to render)
-            st.text_input("Name", key="proj_name")
 
             if is_maker:
                 if is_web:
-                    # WEB MAKER: Download Only (Upload is handled above)
+                    # WEB MAKER: Download Only
                     json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
                     st.download_button("💾 Download Project", data=json_str, file_name=f"{safe_name}.json", mime="application/json", use_container_width=True)
                 else:
-                    # LOCAL MAKER: Save / Load Disk
+                    # LOCAL MAKER: Save to Disk
                     def save_proj():
                         project_manager.save_project(st.session_state.proj_name, st.session_state)
                         st.toast("Saved!", icon="💾")
                     st.button("💾 Save", on_click=save_proj, use_container_width=True)
                     
-                    projs = project_manager.list_projects()
-                    subs = project_manager.list_submissions()
-                    
-                    # Unified Load
-                    load_source = st.radio("Source", ["Projects", "Submissions"], horizontal=True, label_visibility="collapsed")
-                    
-                    file_list = projs if load_source == "Projects" else subs
-                    selected_file = st.selectbox("Load", file_list, key="sel_proj", index=None, placeholder=f"Select from {load_source}...")
-                    
-                    def load_proj():
-                        if load_source == "Submissions":
-                             # Use the helper that handles Cloud Download
-                             data = project_manager.load_submission(st.session_state.sel_proj)
-                             if data:
-                                 project_manager.apply_settings(data)
-                                 st.session_state.proj_name = data.get('project_name', st.session_state.sel_proj)
-                                 st.toast(f"Loaded {st.session_state.sel_proj}!", icon="📂")
-                             else:
-                                 st.error("Failed to load submission (Check Internet/Drive).")
-                        else:
-                             # Standard Project Load
-                             fpath = os.path.join(project_manager.PROJECTS_DIR, f"{st.session_state.sel_proj}.json")
-                             if os.path.exists(fpath):
-                                with open(fpath, 'r') as f:
-                                    data = json.load(f)
-                                project_manager.apply_settings(data)
-                                st.session_state.proj_name = data.get('project_name', st.session_state.sel_proj)
-                                st.toast(f"Loaded {st.session_state.sel_proj}!", icon="📂")
-                        
-                    st.button(f"📂 Load {load_source[:-1]}", on_click=load_proj, disabled=not selected_file, use_container_width=True)
             else:
                 # CREATOR MODE
+                st.markdown("### Submission")
+                with st.expander("📝 Details (Optional)", expanded=True):
+                    sub_name = st.text_input("Your Name", key="sub_author")
+                    sub_email = st.text_input("Email", key="sub_email")
+                    sub_note = st.text_area("Comments", key="sub_note", height=80)
+                
+                submission_meta = {
+                    "author": sub_name,
+                    "email": sub_email,
+                    "comments": sub_note,
+                    "timestamp": str(os.popen("date").read()).strip() # Simple timestamp
+                }
+
                 if is_web:
-                    # CREATOR WEB: Load Logic moved to top
+                    # CREATOR WEB: 
                     json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
-                    # Use dynamic keys to ensure button redraws if name changes
-                    st.download_button("💾 Save Project (Download)", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True, help="Download your progress to resume later.", key=f"dl_save_{safe_name}")
+                    st.download_button("💾 Download", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True)
                     
-                    # Real Cloud Submission
-                    if st.button("📤 Submit Design (Cloud)", type="primary", use_container_width=True, key=f"btn_sub_{safe_name}"):
-                         with st.spinner("Uploading to Maker's Cloud..."):
-                             fname = project_manager.submit_design(st.session_state.proj_name, st.session_state)
-                             st.toast(f"Design Submitted!", icon="✅")
-                             st.success(f"Submitted to Cloud as '{fname}'!")
-                             st.info("The Maker has been notified (file is in Drive).")
+                    # Cloud Submission
+                    if st.button("📤 Submit (Cloud)", type="primary", use_container_width=True, key=f"btn_sub_{safe_name}", disabled=not sub_name):
+                         try:
+                             with st.status("Processing...", expanded=True) as status:
+                                 status.write("📦 Packaging...")
+                                 status.write("☁️ Uploading (Updating DB)...")
+                                 fname, err = project_manager.submit_design(st.session_state.proj_name, st.session_state, submission_meta)
+                                 
+                                 if err:
+                                     status.write(f"⚠️ Cloud Error: {err}")
+                                     status.update(label="Saved Locally", state="error", expanded=True)
+                                 else:
+                                     status.update(label="Done!", state="complete", expanded=False)
+                                 
+                             if err:
+                                 st.warning(f"Saved Locally Only. ({err})")
+                             else:
+                                 st.toast(f"Submitted!", icon="✅")
+                                 st.success(f"Submitted as '{fname}'!")
+                         except Exception as e:
+                             st.error(f"Failed: {str(e)}")
                 else:
                     if st.button("📤 Submit Design", type="primary", use_container_width=True):
-                        fname = project_manager.submit_design(st.session_state.proj_name, st.session_state)
-                        st.toast(f"Design Submitted!", icon="✅")
-                        st.success(f"Design Submitted to '{fname}'!")
-                        st.info("The Maker can now open this directly from their dashboard.")
+                        # FIX: Unpack tuple
+                        fname, err = project_manager.submit_design(st.session_state.proj_name, st.session_state, submission_meta)
+                        if err:
+                             st.warning(f"Saved Locally (Cloud Error: {err})")
+                        else:
+                             st.toast(f"Submitted!", icon="✅")
+                             st.success(f"Submitted to Cloud as '{fname}'!")
+
 
         with st.expander("2. Map Settings & Dimensions", expanded=True):
             # Auto-populate text input
@@ -319,6 +292,8 @@ def render_sidebar(api_key, process_callback):
             st.text_input("Password", type="password", key="admin_pwd", on_change=check_admin, help="Test Password: topomaker")
             if is_maker:
                 st.caption("✅ Maker Mode Active")
+                
+                st.divider()
                 if st.button("Logout"):
                     st.session_state.user_mode = 'creator'
                     st.rerun()

@@ -1,0 +1,62 @@
+{
+    "location": {
+        "lat": 51.2562,
+        "lon": 7.150764,
+        "width_km": 15.0,
+        "height_km": 15.0
+    },
+    "box": {
+        "width": 190.0,
+        "height": 190.0,
+        "depth": 30.0
+    },
+    "material": {
+        "thickness": 2.0
+    },
+    "processing": {
+        "blur": 5.0,
+        "min_area": 100.0,
+        "min_feature_width": 3.0,
+        "auto_bridge": true,
+        "auto_cleanup": true,
+        "auto_fuse": true,
+        "fuse_gap": 1.0
+    },
+    "frame": {
+        "mode": "None",
+        "width": 4.0,
+        "sides": {
+            "top": true,
+            "bottom": true,
+            "left": true,
+            "right": true
+        }
+    },
+    "jig": {
+        "conn_width": 6.0,
+        "grid_spacing": 20.0,
+        "fluid": true
+    },
+    "dowels": {
+        "use": false,
+        "diameter": 3.0,
+        "count": 2,
+        "positions": []
+    },
+    "manual_edits": {
+        "merge_groups": {},
+        "merge_group_names": {},
+        "manual_bridge_points": {},
+        "island_decisions": {},
+        "jig_modifications": {},
+        "problem_decisions": {},
+        "manual_problems": {}
+    },
+    "project_name": "wuppertal_0_test3",
+    "submission_info": {
+        "author": "test_name",
+        "email": "test_email",
+        "comments": "no comments",
+        "timestamp": "Mon Dec 29 11:31:05 CET 2025"
+    }
+}

@@ -9,6 +9,7 @@ matplotlib.use('Agg') # Use non-interactive backend for Streamlit
 from plotly.colors import sample_colorscale, get_colorscale
 
 from utils import data_loader, geometry_engine, project_manager, app_state, app_layout, views
+from utils.views import home
 
 st.set_page_config(page_title="TopoBox Pro", layout="wide", initial_sidebar_state="collapsed")
 app_layout.inject_custom_css()
@@ -69,7 +70,18 @@ def process_data_callback():
     st.session_state.is_new_run = True
     st.session_state.show_adjustment_info = False
 
-# --- UI ---
+# --- ROUTING ---
+if st.session_state.current_view == "Home":
+    home.render_home()
+    if st.session_state.current_view == "Home": # Double check in case render changed it
+         st.stop()
+
+if st.session_state.current_view == "Submissions" or st.session_state.current_view == "Dashboard":
+    from utils import dashboard
+    dashboard.render_dashboard()
+    st.stop()
+
+# --- UI (Studio/Dashboard) ---
 app_layout.render_navigation()
 app_layout.render_sidebar(API_KEY, process_data_callback)
 
@@ -77,7 +89,7 @@ app_layout.render_sidebar(API_KEY, process_data_callback)
 if not st.session_state.run_btn and st.session_state.elevation_data is None:
     st.info("Please configure your settings and click 'Load/Process Data'.")
 
-if st.session_state.run_btn or st.session_state.elevation_data is not None:
+elif st.session_state.run_btn or st.session_state.elevation_data is not None:
     # Version Control for Cache Invalidation
     # We bump this when we change geometry logic to ensure users don't see stale cached data.
     CURRENT_CODE_VERSION = "v3.9_DebrisFilter"

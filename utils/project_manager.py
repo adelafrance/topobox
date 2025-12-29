@@ -16,62 +16,106 @@ def list_projects():
     """Returns a sorted list of available project names."""
     return sorted([f.replace('.json', '') for f in os.listdir(PROJECTS_DIR) if f.endswith('.json')])
 
-def list_submissions():
-    """Returns a merged list of local and cloud submissions."""
+DB_FILENAME = "submissions_db.json"
+
+def _fetch_db():
+    """Downloads the master DB file content."""
+    db_id = drive.get_file_id_by_name(DB_FILENAME)
+    if not db_id: return None, []
+    
+    content = drive.download_file(db_id)
+    if not content: return db_id, []
+    
+    try:
+        return db_id, json.loads(content)
+    except:
+        return db_id, []
+
+def list_submissions(load_from_drive=True):
+    """Returns a list of submissions from the Cloud DB + Local Files."""
     local_files = set()
     if os.path.exists(SUBMISSIONS_DIR):
-        local_files = set(f.replace('.json', '') for f in os.listdir(SUBMISSIONS_DIR) if f.endswith('.json'))
-    
-    # Cloud Files
-    cloud_files = drive.list_drive_files()
-    # Cache mapping for load
-    if not hasattr(st.session_state, 'drive_map'): st.session_state.drive_map = {}
+        local_files = set(f.replace('_SUBMISSION.json', '') for f in os.listdir(SUBMISSIONS_DIR) if f.endswith('_SUBMISSION.json'))
     
     cloud_names = set()
-    for f in cloud_files:
-        name = f['name'].replace('.json', '')
-        cloud_names.add(name)
-        st.session_state.drive_map[name] = f['id'] # Store ID
-        
-    # Combine (unique)
+    # Cloud DB
+    if load_from_drive:
+        try:
+            _, db_data = _fetch_db()
+            for entry in db_data:
+                if 'project_name' in entry:
+                    cloud_names.add(entry['project_name'])
+        except Exception as e:
+            print(f"DB List Error: {e}")
+
     return sorted(list(local_files | cloud_names))
 
-def submit_design(name, state):
-    """Saves to local submissions AND uploads to Drive if configured."""
+def submit_design(name, state, submission_info=None):
+    """Saves to Local and Appends to Cloud DB."""
     safe_name, save_data = _prepare_save_data(name, state)
+    
+    # Inject Name explicitly so we can list it later
+    save_data['project_name'] = safe_name 
+    
+    # Inject Submission Info
+    if submission_info:
+        save_data['submission_info'] = submission_info
+        
     filename = f"{safe_name}_SUBMISSION.json"
     filepath = os.path.join(SUBMISSIONS_DIR, filename)
     
-    # Local Save
+    # Local Save (Backup)
     with open(filepath, "w") as f:
         json.dump(save_data, f, indent=4)
         
-    # Cloud Upload
-    drive_id = drive.upload_file(filepath, filename)
-    if drive_id:
-        print(f"Uploaded to Drive: {drive_id}")
+    # Cloud Append
+    upload_error = None
+    try:
+        db_id, db_data = _fetch_db()
+        if not db_id:
+             # Just warn, but don't crash
+             print("Database file 'submissions_db.json' not found in Cloud Folder.")
+             raise Exception("DB Not Found (Quota Bypass unavailable)")
         
-    return filename
+        # Check if exists and update
+        updated = False
+        for i, entry in enumerate(db_data):
+            if entry.get('project_name') == safe_name:
+                db_data[i] = save_data # Overwrite
+                updated = True
+                break
+        if not updated:
+            db_data.append(save_data)
+            
+        # Save back
+        err = drive.update_file_content(db_id, json.dumps(db_data, indent=2))
+        if err: raise Exception(err)
+        
+    except Exception as e:
+        upload_error = str(e)
+        print(f"Cloud DB Error: {e}")
+        
+    return filename, upload_error
 
 def load_submission(name):
-    """Loads a submission, downloading from Cloud if needed."""
+    """Loads from Local or Cloud DB."""
     # Check local first
-    filename = f"{name}.json"
+    filename = f"{name}_SUBMISSION.json"
     filepath = os.path.join(SUBMISSIONS_DIR, filename)
     
     if os.path.exists(filepath):
-        # Allow refresh if we want? For now local wins.
-        pass
-    else:
-        # Check Cloud
-        if hasattr(st.session_state, 'drive_map') and name in st.session_state.drive_map:
-            file_id = st.session_state.drive_map[name]
-            success = drive.download_file(file_id, filepath)
-            if not success: return None
-            
-    if os.path.exists(filepath):
         with open(filepath, 'r') as f:
             return json.load(f)
+            
+    # Check Cloud DB
+    try:
+        _, db_data = _fetch_db()
+        for entry in db_data:
+            if entry.get('project_name') == name:
+                return entry
+    except Exception as e:
+        print(f"Cloud Load Error: {e}")
+        
     return None
 
 
