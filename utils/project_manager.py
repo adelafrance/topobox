@@ -2,15 +2,76 @@
 
 import json
 import os
-import streamlit as st
+from utils import drive
 
 PROJECTS_DIR = "projects"
-if not os.path.exists(PROJECTS_DIR):
-    os.makedirs(PROJECTS_DIR)
+SUBMISSIONS_DIR = "submissions"
+
+for d in [PROJECTS_DIR, SUBMISSIONS_DIR]:
+    if not os.path.exists(d):
+        os.makedirs(d)
 
 def list_projects():
     """Returns a sorted list of available project names."""
     return sorted([f.replace('.json', '') for f in os.listdir(PROJECTS_DIR) if f.endswith('.json')])
+
+def list_submissions():
+    """Returns a merged list of local and cloud submissions."""
+    local_files = set()
+    if os.path.exists(SUBMISSIONS_DIR):
+        local_files = set(f.replace('.json', '') for f in os.listdir(SUBMISSIONS_DIR) if f.endswith('.json'))
+    
+    # Cloud Files
+    cloud_files = drive.list_drive_files()
+    # Cache mapping for load
+    if not hasattr(st.session_state, 'drive_map'): st.session_state.drive_map = {}
+    
+    cloud_names = set()
+    for f in cloud_files:
+        name = f['name'].replace('.json', '')
+        cloud_names.add(name)
+        st.session_state.drive_map[name] = f['id'] # Store ID
+        
+    # Combine (unique)
+    return sorted(list(local_files | cloud_names))
+
+def submit_design(name, state):
+    """Saves to local submissions AND uploads to Drive if configured."""
+    safe_name, save_data = _prepare_save_data(name, state)
+    filename = f"{safe_name}_SUBMISSION.json"
+    filepath = os.path.join(SUBMISSIONS_DIR, filename)
+    
+    # Local Save
+    with open(filepath, "w") as f:
+        json.dump(save_data, f, indent=4)
+        
+    # Cloud Upload
+    drive_id = drive.upload_file(filepath, filename)
+    if drive_id:
+        print(f"Uploaded to Drive: {drive_id}")
+        
+    return filename
+
+def load_submission(name):
+    """Loads a submission, downloading from Cloud if needed."""
+    # Check local first
+    filename = f"{name}.json"
+    filepath = os.path.join(SUBMISSIONS_DIR, filename)
+    
+    if os.path.exists(filepath):
+        # Allow refresh if we want? For now local wins.
+        pass
+    else:
+        # Check Cloud
+        if hasattr(st.session_state, 'drive_map') and name in st.session_state.drive_map:
+            file_id = st.session_state.drive_map[name]
+            success = drive.download_file(file_id, filepath)
+            if not success: return None
+            
+    if os.path.exists(filepath):
+        with open(filepath, 'r') as f:
+            return json.load(f)
+    return None
 
 
 

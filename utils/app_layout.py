@@ -45,7 +45,8 @@ def render_navigation():
 
     with c3:
         st.markdown('<div style="height: 32px;"></div>', unsafe_allow_html=True)
-        if st.button("❌ Stop", disabled=not is_maker): st.session_state.quit_confirmation_visible = True
+        # Stop Button only for Makers
+        if is_maker and st.button("❌ Stop"): st.session_state.quit_confirmation_visible = True
 
     if st.session_state.get('quit_confirmation_visible', False):
         with st.container(border=True):
@@ -128,15 +129,35 @@ def render_sidebar(api_key, process_callback):
                     st.button("💾 Save", on_click=save_proj, use_container_width=True)
                     
                     projs = project_manager.list_projects()
-                    if projs:
-                        st.selectbox("Load", projs, key="sel_proj", index=None, placeholder="Select a project...")
-                        def load_proj():
-                            data = project_manager.load_project(st.session_state.sel_proj)
-                            if data:
+                    subs = project_manager.list_submissions()
+                    
+                    # Unified Load
+                    load_source = st.radio("Source", ["Projects", "Submissions"], horizontal=True, label_visibility="collapsed")
+                    
+                    file_list = projs if load_source == "Projects" else subs
+                    selected_file = st.selectbox("Load", file_list, key="sel_proj", index=None, placeholder=f"Select from {load_source}...")
+                    
+                    def load_proj():
+                        if load_source == "Submissions":
+                             # Use the helper that handles Cloud Download
+                             data = project_manager.load_submission(st.session_state.sel_proj)
+                             if data:
+                                 project_manager.apply_settings(data)
+                                 st.session_state.proj_name = data.get('project_name', st.session_state.sel_proj)
+                                 st.toast(f"Loaded {st.session_state.sel_proj}!", icon="📂")
+                             else:
+                                 st.error("Failed to load submission (Check Internet/Drive).")
+                        else:
+                             # Standard Project Load
+                             fpath = os.path.join(project_manager.PROJECTS_DIR, f"{st.session_state.sel_proj}.json")
+                             if os.path.exists(fpath):
+                                with open(fpath, 'r') as f:
+                                    data = json.load(f)
                                 project_manager.apply_settings(data)
-                                st.session_state.proj_name = st.session_state.sel_proj
+                                st.session_state.proj_name = data.get('project_name', st.session_state.sel_proj)
                                 st.toast(f"Loaded {st.session_state.sel_proj}!", icon="📂")
-                        st.button("📂 Load Selected", on_click=load_proj, disabled=not st.session_state.sel_proj, use_container_width=True)
+                        
+                    st.button(f"📂 Load {load_source[:-1]}", on_click=load_proj, disabled=not selected_file, use_container_width=True)
             else:
                 # CREATOR MODE
                 if is_web:
@@ -146,7 +167,10 @@ def render_sidebar(api_key, process_callback):
                     st.download_button("📤 Submit Design (Final)", data=json_str, file_name=f"{safe_name}_SUBMISSION.json", mime="application/json", type="primary", use_container_width=True, help="Download the final design file to email to the Maker.")
                 else:
                     if st.button("📤 Submit Design", type="primary", use_container_width=True):
-                        st.success("Design Submitted! (Simulation)")
+                        fname = project_manager.submit_design(st.session_state.proj_name, st.session_state)
+                        st.balloons()
+                        st.success(f"Design Submitted to '{fname}'!")
+                        st.info("The Maker can now open this directly from their dashboard.")
 
         with st.expander("2. Map Settings & Dimensions", expanded=True):
             # Auto-populate text input

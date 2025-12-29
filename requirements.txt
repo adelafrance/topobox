@@ -10,3 +10,5 @@ rasterio
 requests
 ezdxf
 streamlit-javascript
+google-api-python-client
+google-auth
