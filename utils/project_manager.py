@@ -18,6 +18,7 @@ def list_projects():
 
 DB_FILENAME = "submissions_db.json"
 
+@st.cache_data(ttl=60, show_spinner="Syncing with Cloud... ☁️")
 def _fetch_db():
     """Downloads the master DB file content."""
     db_id = drive.get_file_id_by_name(DB_FILENAME)
@@ -71,6 +72,8 @@ def submit_design(name, state, submission_info=None):
     # Cloud Append
     upload_error = None
     try:
+        # Force fresh fetch
+        _fetch_db.clear()
         db_id, db_data = _fetch_db()
         if not db_id:
              # Just warn, but don't crash
