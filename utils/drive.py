@@ -139,9 +139,15 @@ def share_folder_with_user(user_email, role="writer"):
     except Exception as e:
         return f"Exception: {str(e)}"
 
+KNOWN_DB_ID = "1ZKmKgoNgSN0_Y0nxE8R-cdcmW9DEcc-R"
+
 # --- NEW DB METHODS ---
 
 def get_file_id_by_name(filename):
+    """Finds a file ID. optimization: Checks hardcoded known IDs first."""
+    if filename == "submissions_db.json":
+        return KNOWN_DB_ID
+
     """Finds a file ID by exact name in the shared folder."""
     headers = get_headers()
     if not headers: return None
