@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import signal
 import numpy as np
+import time
 from utils import project_manager
 from streamlit_javascript import st_javascript
 
