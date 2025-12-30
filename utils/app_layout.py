@@ -226,16 +226,25 @@ def render_sidebar(api_key, process_callback):
                         if isinstance(loc_data, dict) and 'error' in loc_data:
                              # Enrich error message for user
                              msg = f"{loc_data['error']}"
-                             if 'perm' in loc_data: msg += f" (State: {loc_data['perm']})"
-                             if 'code' in loc_data: 
-                                 msg += f" (Code: {loc_data['code']})"
-                                 if loc_data['code'] == 1: msg += " - Try resetting site permissions."
+                             is_mobile_block = False
                              
-                             status.write(f"Error: {msg}")
-                             status.update(label="Failed", state="error")
-                             # time.sleep(4) # Give more time to read debug
+                             if 'code' in loc_data and loc_data['code'] == 1: 
+                                 # Code 1 = User Denied (or Browser Policy Denied)
+                                 if 'perm' in loc_data and loc_data['perm'] == 'prompt':
+                                     # State 'prompt' implies we never got to ask => Browser Blocked
+                                     msg = "Mobile browser blocked location request."
+                                     is_mobile_block = True
+                                 else:
+                                     msg = "Location access denied."
+                             
+                             status.write(f"❌ {msg}")
+                             if is_mobile_block:
+                                 status.warning("Please copy Lat/Lon from Google Maps and paste below.")
+                             else:
+                                 status.info("Please check site permissions or enter coordinates manually.")
+                                 
+                             status.update(label="Manual Input Required", state="error")
                              st.session_state.getting_loc = False
-                             # st.rerun() # Don't auto-rerun on error immediately so they can read it
                         elif isinstance(loc_data, dict) and 'lat' in loc_data:
                             st.session_state.lat = loc_data['lat']
                             st.session_state.lon = loc_data['lon']
