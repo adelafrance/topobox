@@ -183,11 +183,31 @@ def render_sidebar(api_key, process_callback):
                         } else if (!window.isSecureContext) {
                             resolve({error: "HTTPS required for Location"});
                         } else {
-                            navigator.geolocation.getCurrentPosition(
-                                pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-                                err => resolve({error: err.message}),
-                                {enableHighAccuracy: true, timeout: 8000, maximumAge: 0}
-                            );
+                            // Helper to resolve error with code/state
+                            function reportError(err, permState) {
+                                resolve({error: err.message, code: err.code, perm: permState});
+                            }
+                            
+                            // Check permissions first (debug info)
+                            let pState = "unknown";
+                            if (navigator.permissions && navigator.permissions.query) {
+                                navigator.permissions.query({name:'geolocation'})
+                                .then(result => {
+                                    pState = result.state;
+                                    runGeo(pState);
+                                })
+                                .catch(() => runGeo("query_failed"));
+                            } else {
+                                runGeo("unsupported");
+                            }
+                            
+                            function runGeo(permState) {
+                                navigator.geolocation.getCurrentPosition(
+                                    pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude, perm: permState}),
+                                    err => reportError(err, permState),
+                                    {enableHighAccuracy: true, timeout: 10000, maximumAge: 0}
+                                );
+                            }
                         }
                     })"""
                     
@@ -195,18 +215,25 @@ def render_sidebar(api_key, process_callback):
                     
                     if loc_data and loc_data != 0:
                         if isinstance(loc_data, dict) and 'error' in loc_data:
-                             status.write(f"Error: {loc_data['error']}")
+                             # Enrich error message for user
+                             msg = f"{loc_data['error']}"
+                             if 'perm' in loc_data: msg += f" (State: {loc_data['perm']})"
+                             if 'code' in loc_data: 
+                                 msg += f" (Code: {loc_data['code']})"
+                                 if loc_data['code'] == 1: msg += " - Try resetting site permissions."
+                             
+                             status.write(f"Error: {msg}")
                              status.update(label="Failed", state="error")
-                             time.sleep(2)
+                             # time.sleep(4) # Give more time to read debug
                              st.session_state.getting_loc = False
-                             st.rerun()
+                             # st.rerun() # Don't auto-rerun on error immediately so they can read it
                         elif isinstance(loc_data, dict) and 'lat' in loc_data:
                             st.session_state.lat = loc_data['lat']
                             st.session_state.lon = loc_data['lon']
                             # Update state BEFORE widget renders
                             st.session_state.coords_input = f"{loc_data['lat']:.4f}, {loc_data['lon']:.4f}"
                             st.session_state.getting_loc = False
-                            status.write("Found!")
+                            status.write(f"Found! (State: {loc_data.get('perm','?')})")
                             status.update(label="Success", state="complete")
                             st.rerun()
                         else:
