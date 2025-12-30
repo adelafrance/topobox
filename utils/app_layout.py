@@ -219,7 +219,6 @@ def render_sidebar(api_key, process_callback):
                 st.text_input("Lat/Lon", key="coords_input", on_change=lambda: _parse_coords(st.session_state.coords_input), help="Format: Lat, Lon", label_visibility="collapsed")
             with c_btn:
                 if st.button("📍", help="Get Current Location", use_container_width=True):
-                    import time
                     st.session_state.getting_loc = True
                     st.session_state.geo_key = f"geo_{time.time()}"
                     st.rerun()
