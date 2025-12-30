@@ -183,30 +183,39 @@ def render_sidebar(api_key, process_callback):
                         } else if (!window.isSecureContext) {
                             resolve({error: "HTTPS required for Location"});
                         } else {
-                            // Helper to resolve error with code/state
+                            // Helper to resolve
                             function reportError(err, permState) {
                                 resolve({error: err.message, code: err.code, perm: permState});
                             }
-                            
-                            // Check permissions first (debug info)
-                            let pState = "unknown";
-                            if (navigator.permissions && navigator.permissions.query) {
-                                navigator.permissions.query({name:'geolocation'})
-                                .then(result => {
-                                    pState = result.state;
-                                    runGeo(pState);
-                                })
-                                .catch(() => runGeo("query_failed"));
-                            } else {
-                                runGeo("unsupported");
+
+                            // Strategy: Try window.parent first (bypass iframe policy) if accessible, else default.
+                            let geo = navigator.geolocation;
+                            try {
+                                if (window.parent && window.parent.navigator && window.parent.navigator.geolocation) {
+                                    geo = window.parent.navigator.geolocation;
+                                }
+                            } catch (e) {
+                                // Cross-origin blocked access to parent, stick to default
+                                console.log("Parent access blocked");
                             }
-                            
+
                             function runGeo(permState) {
-                                navigator.geolocation.getCurrentPosition(
+                                geo.getCurrentPosition(
                                     pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude, perm: permState}),
                                     err => reportError(err, permState),
                                     {enableHighAccuracy: true, timeout: 10000, maximumAge: 0}
                                 );
+                            }
+
+                            // Check permissions (on the geo object we selected)
+                            if (navigator.permissions && navigator.permissions.query) {
+                                navigator.permissions.query({name:'geolocation'})
+                                .then(result => {
+                                    runGeo(result.state);
+                                })
+                                .catch(() => runGeo("query_failed"));
+                            } else {
+                                runGeo("unknown");
                             }
                         }
                     })"""
