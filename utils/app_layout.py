@@ -177,11 +177,17 @@ def render_sidebar(api_key, process_callback):
                         
                     # Run JS Geolocation
                     js_code = """new Promise(resolve => {
-                        navigator.geolocation.getCurrentPosition(
-                            pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
-                            err => resolve({error: err.message}),
-                            {enableHighAccuracy: true, timeout: 8000, maximumAge: 0}
-                        );
+                        if (!navigator.geolocation) {
+                            resolve({error: "Geolocation not supported"});
+                        } else if (!window.isSecureContext) {
+                            resolve({error: "HTTPS required for Location"});
+                        } else {
+                            navigator.geolocation.getCurrentPosition(
+                                pos => resolve({lat: pos.coords.latitude, lon: pos.coords.longitude}),
+                                err => resolve({error: err.message}),
+                                {enableHighAccuracy: true, timeout: 8000, maximumAge: 0}
+                            );
+                        }
                     })"""
                     
                     loc_data = st_javascript(js_code, key=st.session_state.get('geo_key', 'geo_init'))
