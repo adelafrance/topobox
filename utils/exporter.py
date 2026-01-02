@@ -365,36 +365,11 @@ def generate_nested_zip(nested_components, nested_jigs, nested_comp_dims, nested
                     else: dxf_parts.append(moved_poly)
                 
                 if export_fmt == "SVG":
-                    # We need to render them with different colors
-                    # geometry_engine.generate_svg_string expects list of dicts with 'poly'
-                    # But it takes a SINGLE fill_color.
-                    # We might need to construct the SVG manually or call it twice and overlay?
-                    # Calling it twice with add_background=False for the second one.
+                    # Use dictionary mapping for mixed content colors
+                    fill_col = {'part': ex_wood_color, 'jig': '#de2d26', 'default': ex_wood_color}
                     
-                    svg_parts = geometry_engine.generate_svg_string([p for p in sheet_polys if p['type'] != 'jig'], ns_w, ns_h, fill_color=ex_wood_color, stroke_color=ex_edge_color, add_background=False) # No BG yet?
-                    # Actually generate_svg_string creates a full SVG document. We cannot concat them easily unless we strip headers.
-                    # Better to update generate_svg_string or handle it here. 
-                    # Simpler: Generate separate SVGs for Parts and Jigs? No, user wants one sheet.
-                    # Workaround: Just start with Parts (background=True) and inject Jigs?
-                    # Or modify generate_svg_string?
-                    # Let's inspect generate_svg_string... wait, I can't easily change it now.
-                    # I will assume generating them separately is safer for now?
-                    # No, Mixed Nesting means ONE view.
-                    # I will rewrite the SVG generation loop here briefly using simple strings or call visualizer?
-                    # Actually, `generate_svg_string` accepts `custom_styles`? No.
-                    
-                    # Hack: Just render EVERYTHING as "Parts" color for now in SVG, or...
-                    # Wait, if I write separate logic.
-                    # Let's just output distinct files for DXF (layers) but for SVG...
-                    # Maybe just overlay?
-                    # SVG1 = Parts (with BG).
-                    # SVG2 = Jigs (No BG).
-                    # Mix strings? <svg> ... content1 ... content2 ... </svg>
-                    pass # I will process this in next step or use a simpler approach.
-                    
-                    # OK, simpler approach for SVG:
-                    # Just render Parts.
-                    svg = geometry_engine.generate_svg_string(sheet_polys, ns_w, ns_h, fill_color=ex_wood_color, stroke_color=ex_edge_color, add_background=False)
+                    # Note: generate_svg_string now supports dict for fill_color
+                    svg = geometry_engine.generate_svg_string(sheet_polys, ns_w, ns_h, fill_color=fill_col, stroke_color=ex_edge_color, add_background=False)
                     zf.writestr(f"{prefix}_Sheet_{i+1}.svg", svg)
 
                 elif export_fmt == "DXF":

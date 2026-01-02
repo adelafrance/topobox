@@ -613,6 +613,7 @@ def generate_svg_string(polygons, width_mm, height_mm, fill_color="black", strok
     """
     Generates a static SVG string for a given layer's geometries, intended for export.
     Uses the `svgwrite` library to ensure valid and clean output.
+    Supports `fill_color` as a dictionary mapping 'type' -> color for mixed content.
     """
     s = StringIO()
     dwg = svgwrite.Drawing(profile='tiny', size=(f"{width_mm}mm", f"{height_mm}mm"), viewBox=f"0 0 {width_mm} {height_mm}")
@@ -620,12 +621,35 @@ def generate_svg_string(polygons, width_mm, height_mm, fill_color="black", strok
     if add_background:
         dwg.add(dwg.rect(insert=(0, 0), size=('100%', '100%'), fill='white', stroke='#ddd', stroke_width=0.5))
 
-    # Pre-transform coordinates for a standard SVG with origin at top-left.
-    path_data = " ".join([_poly_to_svg_path(p['poly'], y_flip_height=height_mm) for p in polygons])
-    
-    if path_data:
-        # Use fill-rule 'evenodd' to correctly handle polygons with holes.
-        dwg.add(dwg.path(d=path_data, fill=fill_color, stroke=stroke_color, stroke_width=0.2, fill_rule="evenodd", fill_opacity=fill_opacity))
+    def add_path_group(polys, color, opacity):
+        path_data = " ".join([_poly_to_svg_path(p['poly'], y_flip_height=height_mm) for p in polys])
+        if path_data:
+            dwg.add(dwg.path(d=path_data, fill=color, stroke=stroke_color, stroke_width=0.2, fill_rule="evenodd", fill_opacity=opacity))
+
+    if isinstance(fill_color, dict):
+        # Group by type
+        groups = {}
+        for p in polygons:
+            t = p.get('type', 'part') # Default to 'part' if missing
+            if t not in groups: groups[t] = []
+            groups[t].append(p)
+        
+        # Render Order: Parts then Jigs (or specific order)
+        # We render unknown types first, then 'part', then 'jig' on top?
+        # Actually standard dict order is insert order in Py3.7+, but let's be explicit if needed.
+        # Just iterate.
+        for t, group in groups.items():
+            f_col = fill_color.get(t, fill_color.get('default', 'black'))
+            # Special case: Jigs usually translucent?
+            # We can use fill_opacity dict if we wanted, but let's stick to global opacity for now, 
+            # OR pass opacity in the color map? No, color map is just strings.
+            # Let's assume Jigs might need lower opacity.
+            cur_opacity = 0.8 if t == 'jig' else fill_opacity
+            add_path_group(group, f_col, cur_opacity)
+            
+    else:
+        # Legacy Single Color
+        add_path_group(polygons, fill_color, fill_opacity)
 
     dwg.write(s)
     return s.getvalue()

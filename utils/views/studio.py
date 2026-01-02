@@ -12,6 +12,65 @@ from matplotlib.patches import Polygon as MplPolygon
 from matplotlib.colors import to_rgba
 from utils import visualizer, geometry_engine, exporter, nesting
 
+def _prepare_nesting_items(final_geoms, current_dowels):
+    """
+    Collects valid parts and jigs from the final geometry layers.
+    Filters out empty, invalid, or NaN-containing polygons to prevent packer crashes.
+    """
+    all_components = []
+    all_jigs = []
+    
+    def is_valid_poly(p):
+        if p is None or p.is_empty:
+            return False
+        if not p.is_valid:
+            # Attempt to fix self-intersection
+            try:
+                p = p.buffer(0)
+            except Exception:
+                return False
+            if p.is_empty: return False
+        
+        # Check for NaNs in bounds
+        try:
+            minx, miny, maxx, maxy = p.bounds
+            if any(math.isnan(x) for x in [minx, miny, maxx, maxy]):
+                return False
+            if any(math.isinf(x) for x in [minx, miny, maxx, maxy]):
+                return False
+        except Exception:
+            return False
+            
+        return True
+
+    for i, layer in enumerate(final_geoms):
+        # Process Parts
+        for p in layer:
+            if 'poly' in p:
+                poly = p['poly']
+                if is_valid_poly(poly):
+                    all_components.append({'poly': poly, 'layer': i+1, 'type': 'part'})
+        
+        # Process Jigs
+        # Note: We access session state directly as this file is a view module
+        jig_mods = st.session_state.jig_modifications.get(f"L{i+1}", [])
+        try:
+            jig_data = geometry_engine.generate_jig_geometry(
+                layer, current_dowels, 
+                st.session_state.box_w, st.session_state.box_h, 
+                i+1, jig_mods, 
+                conn_width=st.session_state.jig_conn_width, 
+                grid_spacing=st.session_state.get('jig_grid_spacing', 20.0), 
+                fluid_smoothing=st.session_state.get('jig_fluid', True)
+            )
+            if jig_data and is_valid_poly(jig_data.get('poly')):
+                all_jigs.append({'poly': jig_data['poly'], 'layer': i+1, 'type': 'jig'})
+        except Exception as e:
+            # Log specific jig failure but don't crash
+            print(f"Error generating jig for Layer {i+1}: {e}")
+            
+    return all_components, all_jigs
+
 def set_cam(eye, up, view='design'): 
     st.session_state[f'camera_snap_{view}'] = dict(eye=eye, up=up)
 
@@ -249,22 +308,18 @@ def render_export(final_geoms, settings, current_dowels):
         
         st.divider()
         st.markdown("##### Nesting")
-        nest_mode = st.radio("Sheet Strategy", ["Fixed Size", "Auto-Size"], index=0, horizontal=True)
         
-        ex_sheet_w, ex_sheet_h = 600, 400
-        if nest_mode == "Fixed Size":
-            c_n1, c_n2 = st.columns(2)
-            ex_sheet_w = c_n1.number_input("Sheet W (mm)", value=600, step=10)
-            ex_sheet_h = c_n2.number_input("Sheet H (mm)", value=400, step=10)
-            nest_aspect = ex_sheet_w / ex_sheet_h
-        else:
-            nest_aspect = st.number_input("Target Aspect (L/W)", min_value=1.0, value=1.5, step=0.1)
+        c_n1, c_n2 = st.columns(2)
+        ex_sheet_w = c_n1.number_input("Sheet W (mm)", value=1200, step=100, key="nest_sheet_w")
+        ex_sheet_h = c_n2.number_input("Sheet H (mm)", value=600, step=10, key="nest_sheet_h")
+        nest_aspect = ex_sheet_w / ex_sheet_h
 
-        nest_gap = st.number_input("Min Gap (mm)", value=4.0, min_value=0.0, step=0.5)
+        nest_gap = st.number_input("Min Gap (mm)", value=4.0, min_value=0.0, step=0.5, key="nest_gap")
         nest_rotation = st.checkbox("Allow Rotation", value=True)
+        nest_combine = st.checkbox("Combine Parts & Jigs", value=False, help="Pack components and jigs onto the same sheet(s).")
         
         if st.button("🧩 Calculate Layout", type="primary", use_container_width=True):
-            _run_nesting(final_geoms, current_dowels, nest_gap, nest_rotation, nest_aspect, nest_mode, ex_sheet_w, ex_sheet_h)
+            _run_nesting(final_geoms, current_dowels, nest_gap, nest_rotation, nest_aspect, ex_sheet_w, ex_sheet_h, nest_combine)
             st.rerun()
             
         if 'nested_components' in st.session_state:
@@ -278,7 +333,33 @@ def render_export(final_geoms, settings, current_dowels):
             if n_sheets_j > 0: msg += f" + {n_sheets_j} Jig Sheet(s)"
             st.success(msg)
             
-            st.caption(f"Parts Size: **{w_c:.0f}x{h_c:.0f}mm**" + (f" | Jigs Size: **{w_j:.0f}x{h_j:.0f}mm**" if n_sheets_j > 0 else ""))
+            # Display Optimized Settings
+            st.divider()
+            
+            c_info1, c_info2 = st.columns(2)
+            c_info1.markdown(f"**Parts Sheet**: {w_c:.0f} x {h_c:.0f} mm")
+            gap_p = st.session_state.get('nested_gap_parts', st.session_state.nest_gap)
+            c_info1.caption(f"Optimized Gap: **{gap_p:.1f} mm**")
+            
+            if n_sheets_j > 0:
+                c_info2.markdown(f"**Jigs Sheet**: {w_j:.0f} x {h_j:.0f} mm")
+                gap_j = st.session_state.get('nested_gap_jigs', st.session_state.nest_gap)
+                if nest_combine:
+                    c_info2.caption(f"(Combined with Parts)")
+                else:
+                    c_info2.caption(f"Optimized Gap: **{gap_j:.1f} mm**")
+            
+            # Persist View Logic
+            if st.session_state.get('export_preview_mode') == 'Nested Sheets' and 'nested_components' not in st.session_state:
+                st.session_state.export_preview_mode = 'Individual Layers' # Fallback if no data
+            
+            # Display Size Info (Packed Bounds)
+            c_content = st.session_state.get('nested_content_dims', (0,0))
+            j_content = st.session_state.get('nested_jig_content_dims', (0,0))
+            
+            msg_parts = f"Packed Bounds: **{c_content[0]:.0f}x{c_content[1]:.0f}mm**"
+            if n_sheets_j > 0: msg_parts += f" | Jigs Bounds: **{j_content[0]:.0f}x{j_content[1]:.0f}mm**"
+            st.caption(msg_parts)
             
             # Cache the expensive ZIP generation.
             # Fix: Use '_' prefix to prevent Streamlit from trying to hash complex geometry objects.
@@ -299,10 +380,12 @@ def render_export(final_geoms, settings, current_dowels):
     with c_ex1:
         st.markdown("#### Export Preview")
         
-        tab_layers, tab_nesting = st.tabs(["Individual Layers", "Nested Sheets"])
+        # Replaced Tabs with Radio for programmatic control
+        d_mode = st.session_state.get("export_preview_mode", "Individual Layers")
+        prev_mode = st.radio("Preview Mode", ["Individual Layers", "Nested Sheets"], index=["Individual Layers", "Nested Sheets"].index(d_mode), horizontal=True, key="export_preview_mode")
         
-        with tab_layers:
-            for i, layer_polys in enumerate(final_geoms):
+        if prev_mode == "Individual Layers":
+             for i, layer_polys in enumerate(final_geoms):
                 layer_num = i + 1
                 with st.container():
                     st.markdown(f"**Layer {layer_num}**")
@@ -314,25 +397,39 @@ def render_export(final_geoms, settings, current_dowels):
                     jig_mods = st.session_state.jig_modifications.get(f"L{layer_num}", [])
                     jig_data = geometry_engine.generate_jig_geometry(layer_polys, current_dowels, st.session_state.box_w, st.session_state.box_h, layer_num, jig_mods, conn_width=st.session_state.jig_conn_width, grid_spacing=st.session_state.get('jig_grid_spacing', 20.0), fluid_smoothing=st.session_state.get('jig_fluid', True))
                     if jig_data:
-                        svg_jig = geometry_engine.generate_svg_string([{'poly': jig_data['poly']}], st.session_state.box_w, st.session_state.box_h, fill_color="#de2d26", stroke_color="#a50f15", add_background=False, fill_opacity=0.8)
+                        svg_jig = geometry_engine.generate_svg_string([{'poly': jig_data['poly']}], st.session_state.box_w, st.session_state.box_h, fill_color='#de2d26', stroke_color='#a50f15', add_background=False, fill_opacity=0.8)
                         b64_jig = base64.b64encode(svg_jig.encode('utf-8')).decode("utf-8")
                         c_jig.markdown(f'<img src="data:image/svg+xml;base64,{b64_jig}" style="width: 100%;">', unsafe_allow_html=True)
                     else: c_jig.info("Not required")
                 st.divider()
         
-        with tab_nesting:
+        elif prev_mode == "Nested Sheets":
             if 'nested_components' in st.session_state:
-                st.info(f"Sheet Size: {st.session_state.nested_comp_dims[0]:.0f} x {st.session_state.nested_comp_dims[1]:.0f} mm")
+                nc_w, nc_h = st.session_state.nested_comp_dims
+                nj_w, nj_h = st.session_state.get('nested_jig_dims', (0,0))
+                
+                # Visual Scaling normalization
+                # Ensure 100mm looks the same size on both plots by adjusting HTML width %
+                max_disp_w = max(nc_w, nj_w) if nj_w > 0 else nc_w
+                pct_c = (nc_w / max_disp_w) * 100 if max_disp_w > 0 else 100
+                pct_j = (nj_w / max_disp_w) * 100 if max_disp_w > 0 else 100
+                
+                st.info(f"Sheet Size: {nc_w:.0f} x {nc_h:.0f} mm")
                 
                 # Render Components Sheets
                 comps = st.session_state.nested_components
                 for i, sheet in enumerate(comps):
-                    st.markdown(f"**Component Sheet {i+1}**")
+                    st.markdown(f"**Sheet {i+1}**")
                     # Construct poly list for SVG
-                    sheet_polys = [{'poly': item['poly']} for item in sheet]
-                    svg_s = geometry_engine.generate_svg_string(sheet_polys, st.session_state.nested_comp_dims[0], st.session_state.nested_comp_dims[1], fill_color=ex_wood_color, stroke_color="black", add_background=True)
+                    # Preserve type for color mapping
+                    sheet_polys = [{'poly': item['poly'], 'type': item['data'].get('type', 'part')} for item in sheet]
+                    
+                    # Dictionary Color Map for Mixed Content
+                    fill_col = {'part': ex_wood_color, 'jig': '#de2d26', 'default': ex_wood_color}
+                    
+                    svg_s = geometry_engine.generate_svg_string(sheet_polys, nc_w, nc_h, fill_color=fill_col, stroke_color="black", add_background=True)
                     b64_s = base64.b64encode(svg_s.encode('utf-8')).decode("utf-8")
-                    st.markdown(f'<img src="data:image/svg+xml;base64,{b64_s}" style="width: 100%;">', unsafe_allow_html=True)
+                    st.markdown(f'<img src="data:image/svg+xml;base64,{b64_s}" style="width: {pct_c}%;">', unsafe_allow_html=True)
                     st.divider()
                 
                 # Render Jig Sheets (if any)
@@ -340,9 +437,9 @@ def render_export(final_geoms, settings, current_dowels):
                 for i, sheet in enumerate(jigs):
                     st.markdown(f"**Jig Sheet {i+1}**")
                     sheet_polys = [{'poly': item['poly']} for item in sheet]
-                    svg_j = geometry_engine.generate_svg_string(sheet_polys, st.session_state.nested_jig_dims[0], st.session_state.nested_jig_dims[1], fill_color="#de2d26", stroke_color="#a50f15", add_background=True, fill_opacity=0.8)
+                    svg_j = geometry_engine.generate_svg_string(sheet_polys, nj_w, nj_h, fill_color="#de2d26", stroke_color="#a50f15", add_background=True, fill_opacity=0.8)
                     b64_j = base64.b64encode(svg_j.encode('utf-8')).decode("utf-8")
-                    st.markdown(f'<img src="data:image/svg+xml;base64,{b64_j}" style="width: 100%;">', unsafe_allow_html=True)
+                    st.markdown(f'<img src="data:image/svg+xml;base64,{b64_j}" style="width: {pct_j}%;">', unsafe_allow_html=True)
                     st.divider()
 
             else:
@@ -696,95 +793,117 @@ def _render_2d_assembly_view(cur_idx, current_layer_polys, current_dowels, jig_m
     fig_2d.update_layout(dragmode='select', clickmode='event+select')
     st.plotly_chart(fig_2d, use_container_width=True, key=f"assembly_plot_L{cur_idx}", config={'displayModeBar': True, 'displaylogo': False}, on_select="rerun", selection_mode=["points", "box"])
 
-def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, mode, fw, fh):
+def _run_nesting(final_geoms, current_dowels, gap, rotation, aspect, fw, fh, combine_jigs=False):
     nest_progress = st.progress(0, text="Initializing Nesting Engine...")
+    import time
     
     with st.spinner("Calculating optimal layout..."):
-        all_components = []
-        all_jigs = []
-        for i, layer in enumerate(final_geoms):
-            for p in layer:
-                if 'poly' in p and not p['poly'].is_empty: all_components.append({'poly': p['poly'], 'layer': i+1, 'type': 'part'})
-            jig_mods = st.session_state.jig_modifications.get(f"L{i+1}", [])
-            jig_data = geometry_engine.generate_jig_geometry(layer, current_dowels, st.session_state.box_w, st.session_state.box_h, i+1, jig_mods, conn_width=st.session_state.jig_conn_width, grid_spacing=st.session_state.get('jig_grid_spacing', 20.0), fluid_smoothing=st.session_state.get('jig_fluid', True))
-            if jig_data: all_jigs.append({'poly': jig_data['poly'], 'layer': i+1, 'type': 'jig'})
+        # 1. Prepare Items using robust helper
+        all_components, all_jigs = _prepare_nesting_items(final_geoms, current_dowels)
+        
+        # Internal Optimization Helper
+        def optimize_stream(items, label="Items"):
+            if not items:
+                nest_progress.progress(100, text=f"{label} Skipped (Empty)")
+                return [], (0,0), (0,0), gap
 
-        def pack(items, p_start=0.0, p_width=1.0, label="Items"):
-            if not items: 
-                nest_progress.progress(p_start + p_width, text=f"{label} Skipped (Empty)")
-                return [], 0, 0
+            nest_progress.progress(20, text=f"Packing {label} (Initial)...")
             
-            # Helper to run pack
-            def run_packer(w, h):
-                packer = nesting.MultiSheetPacker(w, h, gap, allow_rotation=rotation, grid_step=max(w,h)/150)
-                packer.pack_items(items)
-                return packer.sheets
+            # 1. Initial Pack at Max Size to determine baseline
+            packer = nesting.MultiSheetPacker(fw, fh, gap, allow_rotation=rotation, grid_step=max(fw,fh)/150)
+            packer.pack_items(items)
+            initial_sheets = packer.sheets
+            initial_count = len(initial_sheets)
+            
+            # Calculate Used Width
+            max_x_all = 0
+            max_y_all = 0
+            for sheet in initial_sheets:
+                if not sheet: continue
+                curr_max_x = max(it['x'] + it['w'] for it in sheet)
+                curr_max_y = max(it['y'] + it['h'] for it in sheet)
+                max_x_all = max(max_x_all, curr_max_x)
+                max_y_all = max(max_y_all, curr_max_y)
+            
+            # 2. Determine Optimal Sheet Width
+            used_w = max_x_all
+            target_w = math.ceil(used_w / 100.0) * 100
+            target_w = min(target_w, fw)
+            # Ensure it fits the widest item + gap
+            widest_item = max((it['poly'].bounds[2] - it['poly'].bounds[0]) for it in items) if items else 0
+            target_w = max(target_w, widest_item + gap + 1.0)
+            
+            # 3. Gap Optimization (Binary Search)
+            nest_progress.progress(50, text=f"Optimizing {label} Gap...")
+            
+            best_gap = gap
+            min_g = gap
+            max_g = 25.0
+            
+            # Only optimize if we have slack
+            if target_w > used_w + 10:
+                for _ in range(6): 
+                    test_gap = (min_g + max_g) / 2
+                    p_test = nesting.MultiSheetPacker(target_w, fh, test_gap, allow_rotation=rotation, grid_step=max(target_w,fh)/150)
+                    p_test.pack_items(items)
+                    
+                    if len(p_test.sheets) <= initial_count:
+                        best_gap = test_gap
+                        min_g = test_gap
+                    else:
+                        max_g = test_gap
 
-            if mode == "Fixed Size":
-                nest_progress.progress(p_start + p_width, text=f"Packing {label} (Fixed Size)...")
-                return run_packer(fw, fh), fw, fh
+            # 4. Final Pack with Optimal Settings
+            nest_progress.progress(80, text=f"Finalizing {label}...")
+            final_packer = nesting.MultiSheetPacker(target_w, fh, best_gap, allow_rotation=rotation, grid_step=max(target_w,fh)/150)
+            final_packer.pack_items(items)
+            
+            # Calc Final Content Bounds
+            f_max_x = 0
+            f_max_y = 0
+            for sheet in final_packer.sheets:
+                 if not sheet: continue
+                 f_max_x = max(f_max_x, max(it['x'] + it['w'] for it in sheet))
+                 f_max_y = max(f_max_y, max(it['y'] + it['h'] for it in sheet))
+            
+            return final_packer.sheets, (target_w, fh), (f_max_x, f_max_y), best_gap
+
+        # Execute Optimization
+        if combine_jigs:
+            combined_items = all_components + all_jigs
+            sheets, dims, c_dims, final_gap = optimize_stream(combined_items, "Combined Components")
+            
+            st.session_state.nested_components = sheets
+            st.session_state.nested_comp_dims = dims 
+            st.session_state.nested_content_dims = c_dims 
+            st.session_state.nested_gap_parts = final_gap 
+            
+            # Clear Jigs
+            if 'nested_jigs' in st.session_state: del st.session_state.nested_jigs
+            st.session_state.nested_jig_dims = (0,0)
+            st.session_state.nested_jig_content_dims = (0,0)
+            
+        else:
+            # Parts
+            p_sheets, p_dims, p_c_dims, p_gap = optimize_stream(all_components, "Parts")
+            st.session_state.nested_components = p_sheets
+            st.session_state.nested_comp_dims = p_dims
+            st.session_state.nested_content_dims = p_c_dims
+            st.session_state.nested_gap_parts = p_gap
+            
+            # Jigs
+            if all_jigs:
+                j_sheets, j_dims, j_c_dims, j_gap = optimize_stream(all_jigs, "Jigs")
+                st.session_state.nested_jigs = j_sheets
+                st.session_state.nested_jig_dims = j_dims
+                st.session_state.nested_jig_content_dims = j_c_dims
+                st.session_state.nested_gap_jigs = j_gap
             else:
-                # Auto-Size (Infinite Sheet Heuristic)
-                # FIX: Use Bounding Box Area instead of Material Area.
-                total_bbox_area = 0
-                max_w_item = 0
-                max_h_item = 0
-                
-                for i in items:
-                    b = i['poly'].bounds
-                    w, h = b[2]-b[0], b[3]-b[1]
-                    total_bbox_area += (w * h)
-                    max_w_item = max(max_w_item, w)
-                    max_h_item = max(max_h_item, h)
+                if 'nested_jigs' in st.session_state: del st.session_state.nested_jigs
+                st.session_state.nested_jig_dims = (0,0)
+                st.session_state.nested_jig_content_dims = (0,0)
 
-                # ADAPTIVE PACKING ALGORITHM
-                min_w = max_w_item + gap
-                ideal_w = math.sqrt(total_bbox_area / 0.85 * aspect) # 85% efficiency guess
-                current_w = max(min_w, ideal_w * 0.5)
-                
-                best_result = None
-                best_metric = float('inf') 
-                step_val = max(10, (ideal_w * 1.5 - current_w) / 10) 
-                
-                N_STEPS = 15
-                for i in range(N_STEPS):
-                    # update progress
-                    p_current = p_start + (i / N_STEPS) * p_width
-                    nest_progress.progress(p_current, text=f"Optimizing {label}: Pass {i+1}/{N_STEPS}...")
-                    
-                    current_h = (total_bbox_area * 1.5) / current_w + max_h_item
-                    sheets = run_packer(current_w, current_h)
-                    
-                    if len(sheets) == 1:
-                        items = sheets[0]
-                        max_x = max(it['x'] + it['w'] for it in items)
-                        max_y = max(it['y'] + it['h'] for it in items)
-                        used_w = max_x
-                        used_h = max_y
-                        current_ratio = used_w / used_h if used_h > 0 else 0
-                        metric = abs(current_ratio - aspect)
-                        
-                        if best_result is None or metric < best_metric:
-                            best_metric = metric
-                            best_result = (sheets, used_w + 5.0, used_h + 5.0) 
-                        
-                        if current_ratio > aspect * 1.2:
-                             break
-                    current_w += step_val
-                
-                nest_progress.progress(p_start + p_width, text=f"{label} Optimized!")
-                if best_result: return best_result
-                return sheets, current_w, current_h
-
-        comps, cw, ch = pack(all_components, 0.0, 0.5, "Parts")
-        jigs, jw, jh = pack(all_jigs, 0.5, 0.5, "Jigs")
-    
-    nest_progress.empty()
-    import time
-    st.session_state.nested_components = comps
-    st.session_state.nested_comp_dims = (cw, ch)
-    st.session_state.nested_jigs = jigs
-    st.session_state.nested_jig_dims = (jw, jh)
-    # Increment Cache Version
     st.session_state.nesting_version = time.time()
-    st.toast("Nesting complete!", icon="🧩")
+    st.session_state.export_preview_mode = "Nested Sheets"
+    st.toast("Layout Optimized!", icon="✨")
+    nest_progress.empty()

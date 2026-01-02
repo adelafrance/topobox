@@ -146,19 +146,24 @@ class MultiSheetPacker:
                 best_c = 999999
                 
                 # Manual finding of best spot (Bottom-Left)
-                # Bottom means MAX row index.
-                # Left means MIN col index.
+                # Current Logic Change: User wants to fill Short Axis (Height) first, then Length.
+                # Start at X=0 (Left), fill Y (Bottom to Top), then move X.
+                # So Primary: Minimize C (Left).
+                # Secondary: Maximize R (Bottom).
                 
+                # Iterate through all valid locations to find the global best according to this metric.
                 for i in range(len(valid_locs)):
                    r, c = valid_locs[i]
-                   # We prioritize Bottom-Left.
-                   # Just strictly bottom (max r). Tie-break left.
-                   if r > best_r:
-                       best_r = r
+                   
+                   # Metric: Min C, then Max R.
+                   # Optimization:
+                   if c < best_c:
                        best_c = c
-                   elif r == best_r:
-                       if c < best_c:
-                           best_c = c
+                       best_r = r
+                   elif c == best_c:
+                       # Tie-break with Max R (Bottom)
+                       if r > best_r:
+                           best_r = r
                 
                 # We found best for this rotation.
                 # Now compare with best overall.
