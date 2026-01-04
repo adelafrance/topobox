@@ -90,68 +90,56 @@ def render_sidebar(api_key, process_callback):
                     is_web = True
             except Exception: pass
 
-            if is_maker:
-                if is_web:
-                    # WEB MAKER: Download Only
-                    json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
-                    st.download_button("💾 Download Project", data=json_str, file_name=f"{safe_name}.json", mime="application/json", use_container_width=True)
-                else:
-                    # LOCAL MAKER: Save to Disk
-                    def save_proj():
-                        project_manager.save_project(st.session_state.proj_name, st.session_state)
-                        st.toast("Saved!", icon="💾")
-                    st.button("💾 Save", on_click=save_proj, use_container_width=True)
-                    
+            # --- UNIFIED PROJECT ACTION UI ---
+            
+            # 1. Local/Download Management
+            if is_web:
+                # WEB (Maker or Creator): Download Only
+                json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
+                st.download_button("💾 Download Project", data=json_str, file_name=f"{safe_name}.json", mime="application/json", use_container_width=True)
             else:
-                # CREATOR MODE
-                st.markdown("### Submission")
-                with st.expander("📝 Details (Optional)", expanded=True):
-                    sub_name = st.text_input("Your Name", key="sub_author")
-                    sub_email = st.text_input("Email", key="sub_email")
-                    sub_note = st.text_area("Comments", key="sub_note", height=80)
-                
-                submission_meta = {
-                    "author": sub_name,
-                    "email": sub_email,
-                    "comments": sub_note,
-                    "timestamp": str(os.popen("date").read()).strip() # Simple timestamp
-                }
+                # LOCAL (Maker or Creator): Save to Disk
+                def save_proj():
+                    project_manager.save_project(st.session_state.proj_name, st.session_state)
+                    st.toast("Saved!", icon="💾")
+                st.button("💾 Save", on_click=save_proj, use_container_width=True)
 
-                if is_web:
-                    # CREATOR WEB: 
-                    json_str, safe_name = project_manager.get_project_json(st.session_state.proj_name, st.session_state)
-                    st.download_button("💾 Download", data=json_str, file_name=f"{safe_name}.json", mime="application/json", type="secondary", use_container_width=True)
-                    
-                    # Cloud Submission
-                    if st.button("📤 Submit (Cloud)", type="primary", use_container_width=True, key=f"btn_sub_{safe_name}", disabled=not sub_name):
-                         try:
-                             with st.status("Processing...", expanded=True) as status:
-                                 status.write("📦 Packaging...")
-                                 status.write("☁️ Uploading (Updating DB)...")
-                                 fname, err = project_manager.submit_design(st.session_state.proj_name, st.session_state, submission_meta)
-                                 
-                                 if err:
-                                     status.write(f"⚠️ Cloud Error: {err}")
-                                     status.update(label="Saved Locally", state="error", expanded=True)
-                                 else:
-                                     status.update(label="Done!", state="complete", expanded=False)
-                                 
-                             if err:
-                                 st.warning(f"Saved Locally Only. ({err})")
-                             else:
-                                 st.toast(f"Submitted!", icon="✅")
-                                 st.success(f"Submitted as '{fname}'!")
-                         except Exception as e:
-                             st.error(f"Failed: {str(e)}")
-                else:
-                    if st.button("📤 Submit Design", type="primary", use_container_width=True):
-                        # FIX: Unpack tuple
+            st.divider()
+
+            # 2. Submission (Available to ALL users now)
+            st.markdown("### Submission")
+            with st.expander("📝 Details (Optional)", expanded=True):
+                sub_name = st.text_input("Your Name", key="sub_author")
+                sub_email = st.text_input("Email", key="sub_email")
+                sub_note = st.text_area("Comments", key="sub_note", height=80)
+            
+            submission_meta = {
+                "author": sub_name,
+                "email": sub_email,
+                "comments": sub_note,
+                "timestamp": str(os.popen("date").read()).strip() # Simple timestamp
+            }
+
+            # Submission Logic matches for both, but feedback differs slightly if is_web
+            if st.button("📤 Submit Design", type="primary", use_container_width=True, key="btn_submit_universal", disabled=not sub_name):
+                try:
+                    with st.status("Processing...", expanded=True) as status:
+                        if is_web: status.write("📦 Packaging...")
+                        status.write("☁️ Uploading...")
+                        
                         fname, err = project_manager.submit_design(st.session_state.proj_name, st.session_state, submission_meta)
+                        
                         if err:
-                             st.warning(f"Saved Locally (Cloud Error: {err})")
+                            status.write(f"⚠️ Cloud Error: {err}")
+                            status.update(label="Saved Locally", state="error", expanded=True)
+                            st.warning(f"Saved Locally Only. ({err})")
                         else:
-                             st.toast(f"Submitted!", icon="✅")
-                             st.success(f"Submitted to Cloud as '{fname}'!")
+                            status.update(label="Done!", state="complete", expanded=False)
+                            st.toast(f"Submitted!", icon="✅")
+                            st.success(f"Submitted as '{fname}'!")
+                            
+                except Exception as e:
+                    st.error(f"Failed: {str(e)}")
 
 
         with st.expander("2. Map Settings & Dimensions", expanded=True):

@@ -45,11 +45,14 @@ def _prepare_nesting_items(final_geoms, current_dowels):
 
     for i, layer in enumerate(final_geoms):
         # Process Parts
+        # Create a counter for valid parts on this layer
+        part_idx = 1
         for p in layer:
             if 'poly' in p:
                 poly = p['poly']
                 if is_valid_poly(poly):
-                    all_components.append({'poly': poly, 'layer': i+1, 'type': 'part'})
+                    all_components.append({'poly': poly, 'layer': i+1, 'type': 'part', 'id': part_idx})
+                    part_idx += 1
         
         # Process Jigs
         # Note: We access session state directly as this file is a view module
@@ -293,103 +296,89 @@ def render_export(final_geoms, settings, current_dowels):
     color_presets = {"Birch": "#E3C099", "Oak": "#D2B48C", "Pine": "#E5C6A0", "Walnut": "#5D4037", "Mahogany": "#4A0404", "White": "#FFFFFF", "Grey": "#808080", "Dark Grey": "#333333", "Black": "#000000"}
     ex_wood_color = color_presets.get(wood_choice, "#E3C099")
     
-    c_ex1, c_ex2 = st.columns([3, 1])
-    with c_ex2:
-        st.markdown("##### Export Settings")
-        export_fmt = st.selectbox("Format", ["SVG", "DXF", "PDF", "PNG", "JPG"], index=1)
+    # Layout: Preview Left (3), Config Right (1)
+    c_preview, c_config = st.columns([3, 1])
+    
+    with c_config:
+        st.markdown("##### Output Configuration")
         
-        st.download_button("📄 Download Assembly Guide (PDF)", 
-                           data=exporter.generate_assembly_guide_pdf(final_geoms, settings, st.session_state.jig_modifications, current_dowels),
-                           file_name=f"{st.session_state.proj_name}_AssemblyGuide.pdf", mime="application/pdf", use_container_width=True)
+        # 1. Mode Selection
+        export_mode = st.radio("Export Mode", ["Individual Layers", "Nested Layout"], index=0, key="export_mode_select")
         
-        st.download_button(f"⬇️ Download {export_fmt} ZIP", 
-                           data=exporter.generate_zip_data(final_geoms, settings, st.session_state.jig_modifications, current_dowels, export_fmt),
-                           file_name=f"{st.session_state.proj_name}_{export_fmt}.zip", mime="application/zip", type="primary", use_container_width=True)
+        # 2. Format Selection (SVG Removed, DXF Renamed)
+        fmt_options = ["DXF (2D Cut)", "DXF (3D Solid)", "PDF", "EPS (Vector)", "PNG", "JPG"]
+        export_fmt_display = st.selectbox("Format", fmt_options, index=0)
+        
+        if "DXF (2D" in export_fmt_display: export_fmt = "DXF"
+        elif "DXF (3D" in export_fmt_display: export_fmt = "DXF_3D"
+        elif "EPS" in export_fmt_display: export_fmt = "EPS"
+        else: export_fmt = export_fmt_display
         
         st.divider()
-        st.markdown("##### Nesting")
         
-        c_n1, c_n2 = st.columns(2)
-        ex_sheet_w = c_n1.number_input("Sheet W (mm)", value=1200, step=100, key="nest_sheet_w")
-        ex_sheet_h = c_n2.number_input("Sheet H (mm)", value=600, step=10, key="nest_sheet_h")
-        nest_aspect = ex_sheet_w / ex_sheet_h
+        if export_mode == "Individual Layers":
+            st.info("Exports each layer as a separate file.")
+            st.download_button(f"⬇️ Download {export_fmt} ZIP", 
+                               data=exporter.generate_zip_data(final_geoms, settings, st.session_state.jig_modifications, current_dowels, export_fmt, part_color=ex_wood_color),
+                               file_name=f"{st.session_state.proj_name}_{export_fmt}.zip", mime="application/zip", type="primary", use_container_width=True)
+            
+        elif export_mode == "Nested Layout":
+            st.markdown("**Nesting Parameters**")
+            ex_sheet_w = st.number_input("Sheet W (mm)", value=1200, step=100, key="nest_sheet_w")
+            ex_sheet_h = st.number_input("Sheet H (mm)", value=600, step=10, key="nest_sheet_h")
+            nest_aspect = ex_sheet_w / ex_sheet_h
 
-        nest_gap = st.number_input("Min Gap (mm)", value=4.0, min_value=0.0, step=0.5, key="nest_gap")
-        nest_rotation = st.checkbox("Allow Rotation", value=True)
-        nest_combine = st.checkbox("Combine Parts & Jigs", value=False, help="Pack components and jigs onto the same sheet(s).")
-        
-        if st.button("🧩 Calculate Layout", type="primary", use_container_width=True):
-            _run_nesting(final_geoms, current_dowels, nest_gap, nest_rotation, nest_aspect, ex_sheet_w, ex_sheet_h, nest_combine)
-            st.rerun()
+            nest_gap = st.number_input("Min Gap (mm)", value=4.0, min_value=0.0, step=0.5, key="nest_gap")
+            nest_rotation = st.checkbox("Allow Rotation", value=True)
+            nest_combine = st.checkbox("Combine Parts & Jigs", value=False)
             
-        if 'nested_components' in st.session_state:
-            n_sheets_c = len(st.session_state.nested_components)
-            n_sheets_j = len(st.session_state.get('nested_jigs', []))
-            
-            w_c, h_c = st.session_state.nested_comp_dims
-            w_j, h_j = st.session_state.get('nested_jig_dims', (0,0))
-            
-            msg = f"Packed: {n_sheets_c} Part Sheet(s)"
-            if n_sheets_j > 0: msg += f" + {n_sheets_j} Jig Sheet(s)"
-            st.success(msg)
-            
-            # Display Optimized Settings
+            if st.button("🧩 Calculate Layout", type="secondary", use_container_width=True):
+                _run_nesting(final_geoms, current_dowels, nest_gap, nest_rotation, nest_aspect, ex_sheet_w, ex_sheet_h, nest_combine)
+                st.rerun()
+                
             st.divider()
             
-            c_info1, c_info2 = st.columns(2)
-            c_info1.markdown(f"**Parts Sheet**: {w_c:.0f} x {h_c:.0f} mm")
-            gap_p = st.session_state.get('nested_gap_parts', st.session_state.nest_gap)
-            c_info1.caption(f"Optimized Gap: **{gap_p:.1f} mm**")
-            
-            if n_sheets_j > 0:
-                c_info2.markdown(f"**Jigs Sheet**: {w_j:.0f} x {h_j:.0f} mm")
-                gap_j = st.session_state.get('nested_gap_jigs', st.session_state.nest_gap)
-                if nest_combine:
-                    c_info2.caption(f"(Combined with Parts)")
-                else:
-                    c_info2.caption(f"Optimized Gap: **{gap_j:.1f} mm**")
-            
-            # Persist View Logic
-            if st.session_state.get('export_preview_mode') == 'Nested Sheets' and 'nested_components' not in st.session_state:
-                st.session_state.export_preview_mode = 'Individual Layers' # Fallback if no data
-            
-            # Display Size Info (Packed Bounds)
-            c_content = st.session_state.get('nested_content_dims', (0,0))
-            j_content = st.session_state.get('nested_jig_content_dims', (0,0))
-            
-            msg_parts = f"Packed Bounds: **{c_content[0]:.0f}x{c_content[1]:.0f}mm**"
-            if n_sheets_j > 0: msg_parts += f" | Jigs Bounds: **{j_content[0]:.0f}x{j_content[1]:.0f}mm**"
-            st.caption(msg_parts)
-            
-            # Cache the expensive ZIP generation.
-            # Fix: Use '_' prefix to prevent Streamlit from trying to hash complex geometry objects.
-            # We pass 'nesting_timestamp' as the cache key to force updates when data changes.
-            @st.cache_data
-            def get_cached_zip(_nc, _nj, _ncd, _njd, fmt, wc, ec, pname, version_id):
-                return exporter.generate_nested_zip(_nc, _nj, _ncd, _njd, fmt, wc, ec)
-            
-            nest_ver = st.session_state.get('nesting_version', 0)
-            zip_data = get_cached_zip(st.session_state.nested_components, st.session_state.get('nested_jigs'), 
-                                     st.session_state.nested_comp_dims, st.session_state.get('nested_jig_dims'), 
-                                     export_fmt, ex_wood_color, "#000000", st.session_state.proj_name, nest_ver)
+            if 'nested_components' in st.session_state:
+                # Stats
+                n_sheets_c = len(st.session_state.nested_components)
+                n_sheets_j = len(st.session_state.get('nested_jigs', []))
+                st.success(f"Packed: {n_sheets_c} Parts + {n_sheets_j} Jigs Sheets")
+                
+                # Cache Zip
+                @st.cache_data
+                def get_cached_zip(_nc, _nj, _ncd, _njd, fmt, wc, ec, pname, mth, version_id):
+                    return exporter.generate_nested_zip(_nc, _nj, _ncd, _njd, fmt, wc, ec, proj_name=pname, mat_th=mth)
+                
+                nest_ver = st.session_state.get('nesting_version', 0)
+                zip_data = get_cached_zip(st.session_state.nested_components, st.session_state.get('nested_jigs'), 
+                                         st.session_state.nested_comp_dims, st.session_state.get('nested_jig_dims'), 
+                                         export_fmt, ex_wood_color, "#000000", st.session_state.proj_name, settings['mat_th'], nest_ver)
 
-            st.download_button(f"⬇️ Download Nested {export_fmt} ZIP", 
-                               data=zip_data,
-                               file_name=f"{st.session_state.proj_name}_Nested_{export_fmt}.zip", mime="application/zip", use_container_width=True)
+                st.download_button(f"⬇️ Download Nested {export_fmt}", 
+                                   data=zip_data,
+                                   file_name=f"{st.session_state.proj_name}_Nested_{export_fmt}.zip", mime="application/zip", type="primary", use_container_width=True)
+            else:
+                st.warning("Please calculate layout first.")
 
-    with c_ex1:
+        st.divider()
+        st.markdown("##### Documentation")
+        st.download_button("📄 Assembly Guide (PDF)", 
+                           data=exporter.generate_assembly_guide_pdf(final_geoms, settings, st.session_state.jig_modifications, current_dowels),
+                           file_name=f"{st.session_state.proj_name}_AssemblyGuide.pdf", mime="application/pdf", use_container_width=True)
+
+    with c_preview:
         st.markdown("#### Export Preview")
         
-        # Replaced Tabs with Radio for programmatic control
-        d_mode = st.session_state.get("export_preview_mode", "Individual Layers")
-        prev_mode = st.radio("Preview Mode", ["Individual Layers", "Nested Sheets"], index=["Individual Layers", "Nested Sheets"].index(d_mode), horizontal=True, key="export_preview_mode")
+        # Sync Preview Mode with Config Mode
+        view_mode = "Nested Sheets" if export_mode == "Nested Layout" else "Individual Layers"
         
-        if prev_mode == "Individual Layers":
+        if view_mode == "Individual Layers":
              for i, layer_polys in enumerate(final_geoms):
                 layer_num = i + 1
                 with st.container():
                     st.markdown(f"**Layer {layer_num}**")
                     c_part, c_jig = st.columns(2)
+                    # SVG generation for PREVIEW is explicitly allowed/needed for browser, even if file export is removed.
                     svg_parts = geometry_engine.generate_svg_string(layer_polys, st.session_state.box_w, st.session_state.box_h, fill_color=ex_wood_color, stroke_color="black", add_background=False)
                     b64_parts = base64.b64encode(svg_parts.encode('utf-8')).decode("utf-8")
                     c_part.markdown(f'<img src="data:image/svg+xml;base64,{b64_parts}" style="width: 100%;">', unsafe_allow_html=True)
@@ -403,7 +392,7 @@ def render_export(final_geoms, settings, current_dowels):
                     else: c_jig.info("Not required")
                 st.divider()
         
-        elif prev_mode == "Nested Sheets":
+        elif view_mode == "Nested Sheets":
             if 'nested_components' in st.session_state:
                 nc_w, nc_h = st.session_state.nested_comp_dims
                 nj_w, nj_h = st.session_state.get('nested_jig_dims', (0,0))

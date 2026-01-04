@@ -1500,5 +1500,29 @@ def generate_jig_geometry(layer_geoms, _dowels, box_w, box_h, layer_num, modific
     # ORDER MATTERS: Clean first (which might break thin necks), THEN remove small islands.
     final_jig, _ = clean_geometry(final_jig, min_width=2.0)
     final_jig = remove_small_islands(final_jig, min_area=150.0)
+    final_jig = remove_small_holes(final_jig, min_area=20.0)
     
     return {'poly': final_jig, 'labels': []}
+
+def remove_small_holes(geometry, min_area=20.0):
+    """
+    Removes holes (interior rings) smaller than min_area from a Polygon or MultiPolygon.
+    """
+    if geometry is None or geometry.is_empty:
+        return geometry
+        
+    if geometry.geom_type == 'MultiPolygon':
+        cleaned_polys = [remove_small_holes(p, min_area) for p in geometry.geoms]
+        return unary_union(cleaned_polys)
+    
+    if geometry.geom_type == 'Polygon':
+        # Filter interiors
+        valid_interiors = []
+        for interior in geometry.interiors:
+            # Create a polygon from the ring to check area
+            if Polygon(interior).area >= min_area:
+                valid_interiors.append(interior)
+        
+        return Polygon(geometry.exterior, valid_interiors)
+        
+    return geometry
